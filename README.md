@@ -1,4 +1,4 @@
-# FalconCAD
+# FalconEDA
 
 An open-source schematic and PCB editor built with .NET and Avalonia.
 
@@ -19,5 +19,5 @@ Status: early scaffolding.
 ```
 dotnet build
 dotnet test
-dotnet run --project src/FalconCAD.App
+dotnet run --project src/FalconEDA.App
 ```
