@@ -1,28 +1,65 @@
 namespace FalconCAD.Core;
 
-public sealed class Layer
+public sealed class Part
 {
-    public required int Number { get; init; }
     public required string Name { get; init; }
-    public bool Visible { get; set; } = true;
-
-    public override string ToString() => $"{Number} {Name}";
+    public required string LibraryKey { get; init; }
+    public required string DeviceSet { get; init; }
+    public string Device { get; init; } = "";
+    public string Technology { get; init; } = "";
+    public string? Value { get; init; }
+    public Dictionary<string, string> Attributes { get; } = new(StringComparer.OrdinalIgnoreCase);
 }
 
-public sealed class Wire
+public enum AttributeDisplay { Off, Value, Name, Both }
+
+/// <summary>A part attribute placed on the sheet, used when an instance is "smashed".</summary>
+public sealed class PlacedAttribute
 {
-    public required Point From { get; init; }
-    public required Point To { get; init; }
-    public double Width { get; init; } = 0.15;
+    public required string Name { get; init; }
+    public Point? Position { get; init; }
+    public double Size { get; init; } = 1.778;
     public int Layer { get; init; }
-
-    public double DistanceTo(Point p) => GeometryMath.DistanceToSegment(p, From, To);
+    public Rotation Rotation { get; init; }
+    public Align Align { get; init; } = Align.BottomLeft;
+    public AttributeDisplay Display { get; init; } = AttributeDisplay.Value;
 }
 
+/// <summary>One gate of a part placed on a sheet.</summary>
+public sealed class Instance
+{
+    public required string Part { get; init; }
+    public required string Gate { get; init; }
+    public required Point Position { get; init; }
+    public Rotation Rotation { get; init; }
+    public bool Smashed { get; init; }
+    public List<PlacedAttribute> Attributes { get; } = new();
+
+    public Transform Transform => new(Position, Rotation);
+}
+
+public sealed class Label
+{
+    public required Point Position { get; init; }
+    public double Size { get; init; } = 1.778;
+    public int Layer { get; init; } = 95;
+    public Rotation Rotation { get; init; }
+    public Align Align { get; init; } = Align.BottomLeft;
+    public bool Xref { get; init; }
+}
+
+public sealed record PinRef(string Part, string Gate, string Pin);
+
+/// <summary>A net or a bus on one sheet. Wires with the same net name on other sheets are the same signal.</summary>
 public sealed class Net
 {
     public required string Name { get; set; }
     public List<Wire> Wires { get; } = new();
+    public List<Label> Labels { get; } = new();
+
+    /// <summary>Junction dots stored in the file.</summary>
+    public List<Point> Junctions { get; } = new();
+    public List<PinRef> PinRefs { get; } = new();
 
     public bool Touches(Point p) => Wires.Any(w => w.DistanceTo(p) < GeometryMath.Epsilon);
 
@@ -30,7 +67,7 @@ public sealed class Net
     /// Points where three or more wire ends meet, counting a wire that passes
     /// through a point as two ends. These get a junction dot.
     /// </summary>
-    public IEnumerable<Point> Junctions()
+    public IEnumerable<Point> FindJunctions()
     {
         var ends = Wires.SelectMany(w => new[] { w.From, w.To })
             .DistinctBy(p => (Math.Round(p.X, 6), Math.Round(p.Y, 6)));
@@ -49,108 +86,39 @@ public sealed class Net
                 yield return p;
         }
     }
-}
 
-/// <summary>A schematic sheet or a board: the thing an editor window shows.</summary>
-public sealed class Drawing
-{
-    public const int NetLayer = 91;
-    public const double DefaultNetWidth = 0.1524;
-
-    public List<Layer> Layers { get; } = new();
-    public List<Net> Nets { get; } = new();
-
-    /// <summary>Graphic wires that are not part of a net.</summary>
-    public List<Wire> Wires { get; } = new();
-
-    public static Drawing CreateSchematic()
+    public Net Clone()
     {
-        var drawing = new Drawing();
-        drawing.Layers.AddRange(new[]
-        {
-            new Layer { Number = 91, Name = "Nets" },
-            new Layer { Number = 92, Name = "Busses" },
-            new Layer { Number = 94, Name = "Symbols" },
-            new Layer { Number = 95, Name = "Names" },
-            new Layer { Number = 96, Name = "Values" },
-            new Layer { Number = 97, Name = "Info" },
-            new Layer { Number = 98, Name = "Guide" },
-        });
-        return drawing;
+        var copy = new Net { Name = Name };
+        copy.Wires.AddRange(Wires);
+        copy.Labels.AddRange(Labels);
+        copy.Junctions.AddRange(Junctions);
+        copy.PinRefs.AddRange(PinRefs);
+        return copy;
     }
 
-    public IEnumerable<Wire> AllWires() => Wires.Concat(Nets.SelectMany(n => n.Wires));
-
-    public string NextNetName()
+    /// <summary>Groups the wires into pieces that are connected to each other.</summary>
+    public static List<List<Wire>> ConnectedGroups(IReadOnlyList<Wire> wires)
     {
-        var i = 1;
-        while (Nets.Any(n => n.Name == $"N${i}"))
-            i++;
-        return $"N${i}";
-    }
+        var parent = Enumerable.Range(0, wires.Count).ToArray();
+        int Find(int i) => parent[i] == i ? i : parent[i] = Find(parent[i]);
 
-    /// <summary>
-    /// Adds a net polyline. If either end lands on an existing net, the new
-    /// segments join that net, and nets touched at both ends are merged.
-    /// </summary>
-    public Net AddNet(IReadOnlyList<Point> points, double width = DefaultNetWidth, string? name = null)
-    {
-        if (points.Count < 2)
-            throw new ArgumentException("A net needs at least two points.", nameof(points));
-
-        var touched = Nets.Where(n => n.Touches(points[0]) || n.Touches(points[^1])).ToList();
-        var target = (name is null ? null : Nets.FirstOrDefault(n => n.Name == name)) ?? touched.FirstOrDefault();
-        if (target is null)
+        for (var i = 0; i < wires.Count; i++)
         {
-            target = new Net { Name = name ?? NextNetName() };
-            Nets.Add(target);
+            for (var j = i + 1; j < wires.Count; j++)
+            {
+                if (Connected(wires[i], wires[j]))
+                    parent[Find(i)] = Find(j);
+            }
         }
 
-        foreach (var other in touched.Where(n => n != target))
-        {
-            target.Wires.AddRange(other.Wires);
-            Nets.Remove(other);
-        }
-
-        target.Wires.AddRange(Segments(points, width, NetLayer));
-        return target;
+        return Enumerable.Range(0, wires.Count)
+            .GroupBy(Find)
+            .Select(g => g.Select(i => wires[i]).ToList())
+            .ToList();
     }
 
-    public void AddWire(IReadOnlyList<Point> points, double width, int layer)
-    {
-        if (points.Count < 2)
-            throw new ArgumentException("A wire needs at least two points.", nameof(points));
-        Wires.AddRange(Segments(points, width, layer));
-    }
-
-    /// <summary>Deletes the wire segment nearest to <paramref name="p"/>, if one is within <paramref name="radius"/>.</summary>
-    public bool DeleteNearest(Point p, double radius)
-    {
-        var nearest = AllWires()
-            .Select(w => (Wire: w, Distance: w.DistanceTo(p)))
-            .Where(x => x.Distance <= radius)
-            .OrderBy(x => x.Distance)
-            .Select(x => x.Wire)
-            .FirstOrDefault();
-        if (nearest is null)
-            return false;
-
-        if (!Wires.Remove(nearest))
-        {
-            var net = Nets.First(n => n.Wires.Contains(nearest));
-            net.Wires.Remove(nearest);
-            if (net.Wires.Count == 0)
-                Nets.Remove(net);
-        }
-        return true;
-    }
-
-    private static IEnumerable<Wire> Segments(IReadOnlyList<Point> points, double width, int layer)
-    {
-        for (var i = 1; i < points.Count; i++)
-        {
-            if (!GeometryMath.SamePoint(points[i - 1], points[i]))
-                yield return new Wire { From = points[i - 1], To = points[i], Width = width, Layer = layer };
-        }
-    }
+    private static bool Connected(Wire a, Wire b) =>
+        a.DistanceTo(b.From) < GeometryMath.Epsilon || a.DistanceTo(b.To) < GeometryMath.Epsilon
+        || b.DistanceTo(a.From) < GeometryMath.Epsilon || b.DistanceTo(a.To) < GeometryMath.Epsilon;
 }

@@ -1,11 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
 using FalconCAD.Commands;
 using FalconCAD.Core;
+using FalconCAD.IO;
 
 namespace FalconCAD.App.ViewModels;
 
@@ -25,23 +27,52 @@ public partial class MainViewModel : ViewModelBase
     private string _coordinates = "";
 
     [ObservableProperty]
+    private string _title = "";
+
+    [ObservableProperty]
+    private IReadOnlyList<Layer> _layers = Array.Empty<Layer>();
+
+    [ObservableProperty]
     private Layer? _activeLayer;
+
+    [ObservableProperty]
+    private IReadOnlyList<string> _sheetNames = Array.Empty<string>();
+
+    [ObservableProperty]
+    private int _sheetIndex;
 
     public MainViewModel()
     {
-        ActiveLayer = Layers.First(l => l.Number == Editor.ActiveLayer);
         Editor.Changed += OnEditorChanged;
-        UpdateCoordinates();
+        RefreshSchematic();
     }
 
     public Editor Editor { get; } = new();
-
-    public IReadOnlyList<Layer> Layers => Editor.Drawing.Layers;
 
     partial void OnActiveLayerChanged(Layer? value)
     {
         if (value is not null)
             Editor.ActiveLayer = value.Number;
+    }
+
+    partial void OnSheetIndexChanged(int value)
+    {
+        if (value >= 0 && value != Editor.SheetIndex)
+            Execute($"EDIT .s{value + 1}");
+    }
+
+    public void OpenFile(string path)
+    {
+        try
+        {
+            Editor.Load(EagleSchematicReader.Read(path), path);
+            RefreshSchematic();
+            Status = $"Opened {path}";
+        }
+        catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException or System.Xml.XmlException or FormatException)
+        {
+            Status = $"Could not open {Path.GetFileName(path)}: {ex.Message}";
+        }
     }
 
     /// <summary>Enter on the command line.</summary>
@@ -114,6 +145,24 @@ public partial class MainViewModel : ViewModelBase
     {
         if (Editor.Tool is { } tool)
             Status = tool.Prompt;
+        SheetIndex = Editor.SheetIndex;
+        UpdateCoordinates();
+    }
+
+    /// <summary>Updates everything that depends on which schematic is loaded.</summary>
+    private void RefreshSchematic()
+    {
+        var schematic = Editor.Schematic;
+
+        // Layers below 90 belong to boards; a schematic only draws on the upper ones.
+        Layers = schematic.Layers.Where(l => l.Number >= 90).ToList();
+        ActiveLayer = Layers.FirstOrDefault(l => l.Number == Sheet.NetLayer) ?? Layers.FirstOrDefault();
+
+        var count = schematic.Sheets.Count;
+        SheetNames = Enumerable.Range(1, count).Select(i => $"{i}/{count}").ToList();
+        SheetIndex = Editor.SheetIndex;
+
+        Title = Editor.FilePath is { } path ? $"FalconCAD - {Path.GetFileName(path)}" : "FalconCAD - untitled";
         UpdateCoordinates();
     }
 

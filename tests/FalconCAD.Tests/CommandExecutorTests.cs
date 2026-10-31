@@ -35,7 +35,7 @@ public class CommandExecutorTests
     {
         Run("GRID MM 1; NET (0 0) (10 0) (10 5);");
 
-        var net = Assert.Single(_editor.Drawing.Nets);
+        var net = Assert.Single(_editor.Sheet.Nets);
         Assert.Equal("N$1", net.Name);
         Assert.Equal(2, net.Wires.Count);
     }
@@ -45,8 +45,8 @@ public class CommandExecutorTests
     {
         Run("GRID MM 1; NET (0 0) (10 0); NET (5 0) (5 10);");
 
-        var net = Assert.Single(_editor.Drawing.Nets);
-        Assert.Equal(new Point(5, 0), Assert.Single(net.Junctions()));
+        var net = Assert.Single(_editor.Sheet.Nets);
+        Assert.Equal(new Point(5, 0), Assert.Single(net.FindJunctions()));
     }
 
     [Fact]
@@ -54,7 +54,7 @@ public class CommandExecutorTests
     {
         Run("GRID MM 1; NET (0 0) (10 0); NET (20 0) (30 0); NET (10 0) (20 0);");
 
-        Assert.Single(_editor.Drawing.Nets);
+        Assert.Single(_editor.Sheet.Nets);
     }
 
     [Fact]
@@ -62,7 +62,7 @@ public class CommandExecutorTests
     {
         Run("GRID MM 1; NET (0 0) (10 0); NET (0 5) (10 5); NET VCC (0 10) (10 10);");
 
-        Assert.Equal(new[] { "N$1", "N$2", "VCC" }, _editor.Drawing.Nets.Select(n => n.Name));
+        Assert.Equal(new[] { "N$1", "N$2", "VCC" }, _editor.Sheet.Nets.Select(n => n.Name));
     }
 
     [Fact]
@@ -70,7 +70,7 @@ public class CommandExecutorTests
     {
         Run("GRID MM 1; NET (0 0) (10 0) (10 10); DEL (10 5);");
 
-        var net = Assert.Single(_editor.Drawing.Nets);
+        var net = Assert.Single(_editor.Sheet.Nets);
         Assert.Single(net.Wires);
     }
 

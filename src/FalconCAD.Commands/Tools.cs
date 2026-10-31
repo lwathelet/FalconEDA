@@ -70,7 +70,7 @@ public sealed class PolylineTool : ITool
             _points.Add(p);
 
         // Like Eagle, a net ends by itself when it lands on another net.
-        if (_endOnNet && _points.Count >= 2 && _editor.Drawing.Nets.Any(n => n.Touches(p)))
+        if (_endOnNet && _points.Count >= 2 && _editor.Sheet.Nets.Any(n => n.Touches(p)))
             Finish();
 
         _editor.NotifyChanged();
@@ -114,8 +114,12 @@ public sealed class DeleteTool : ITool
 
     public void Click(Point p, double pickRadius, int clickCount)
     {
-        if (_editor.Drawing.DeleteNearest(p, pickRadius))
-            _editor.NotifyChanged();
+        if (_editor.Sheet.FindNearest(p, pickRadius) is not { } wire)
+            return;
+
+        _editor.Checkpoint();
+        _editor.Sheet.Delete(wire);
+        _editor.NotifyChanged();
     }
 
     public void Move(Point p) { }

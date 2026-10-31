@@ -10,8 +10,11 @@ public static class CommandExecutor
     private static readonly Dictionary<string, Func<Editor, Command, string>> Handlers = new()
     {
         ["DELETE"] = Delete,
+        ["EDIT"] = Edit,
         ["GRID"] = Grid,
         ["NET"] = Net,
+        ["REDO"] = Redo,
+        ["UNDO"] = Undo,
         ["WINDOW"] = Window,
         ["WIRE"] = Wire,
     };
@@ -82,14 +85,18 @@ public static class CommandExecutor
             }
         }
 
-        void Commit(IReadOnlyList<Point> p) => editor.Drawing.AddNet(p, name: name);
-        var tool = new PolylineTool(editor, "NET", Drawing.NetLayer, Drawing.DefaultNetWidth, Commit, endOnNet: true);
+        void Commit(IReadOnlyList<Point> p)
+        {
+            editor.Checkpoint();
+            editor.Sheet.AddNet(p, name: name);
+        }
+        var tool = new PolylineTool(editor, "NET", Sheet.NetLayer, Sheet.DefaultNetWidth, Commit, endOnNet: true);
         return Polyline(editor, points, Commit, tool);
     }
 
     private static string Wire(Editor editor, Command command)
     {
-        var width = Drawing.DefaultNetWidth;
+        var width = Sheet.DefaultNetWidth;
         var points = new List<Point>();
         foreach (var argument in command.Arguments)
         {
@@ -102,7 +109,11 @@ public static class CommandExecutor
         }
 
         var layer = editor.ActiveLayer;
-        void Commit(IReadOnlyList<Point> p) => editor.Drawing.AddWire(p, width, layer);
+        void Commit(IReadOnlyList<Point> p)
+        {
+            editor.Checkpoint();
+            editor.Sheet.AddWire(p, width, layer);
+        }
         var tool = new PolylineTool(editor, "WIRE", layer, width, Commit, endOnNet: false);
         return Polyline(editor, points, Commit, tool);
     }
@@ -121,13 +132,32 @@ public static class CommandExecutor
         {
             if (argument is not CoordinateArgument c)
                 throw Unexpected("DELETE", argument);
-            if (editor.Drawing.DeleteNearest(ToMm(editor, c.Value), editor.Grid.SizeMm / 2))
-                deleted++;
+            if (editor.Sheet.FindNearest(ToMm(editor, c.Value), editor.Grid.SizeMm / 2) is not { } wire)
+                continue;
+            editor.Checkpoint();
+            editor.Sheet.Delete(wire);
+            deleted++;
         }
 
         editor.NotifyChanged();
         return $"Deleted {deleted} object(s)";
     }
+
+    // EDIT .s2 switches to sheet 2, as in Eagle.
+    private static string Edit(Editor editor, Command command)
+    {
+        if (command.Arguments is not [WordArgument { Value: var target }]
+            || !target.StartsWith(".s", StringComparison.OrdinalIgnoreCase)
+            || !int.TryParse(target[2..], out var number))
+            throw new CommandException("EDIT: use EDIT .s2 to go to sheet 2. Opening files is in the File menu.");
+
+        editor.ShowSheet(number - 1);
+        return $"Sheet {number}/{editor.Schematic.Sheets.Count}";
+    }
+
+    private static string Undo(Editor editor, Command command) => editor.Undo() ? "" : "Nothing to undo";
+
+    private static string Redo(Editor editor, Command command) => editor.Redo() ? "" : "Nothing to redo";
 
     private static string Window(Editor editor, Command command)
     {

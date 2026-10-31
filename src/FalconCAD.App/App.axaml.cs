@@ -17,9 +17,15 @@ public partial class App : Application
     {
         if (ApplicationLifetime is IClassicDesktopStyleApplicationLifetime desktop)
         {
+            var viewModel = new MainViewModel();
+
+            // FalconCAD.App.exe file.sch opens that file.
+            if (desktop.Args is [var path, ..])
+                viewModel.OpenFile(path);
+
             desktop.MainWindow = new MainWindow
             {
-                DataContext = new MainViewModel(),
+                DataContext = viewModel,
             };
         }
 

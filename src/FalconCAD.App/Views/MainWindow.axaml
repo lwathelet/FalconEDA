@@ -9,7 +9,7 @@
         x:Class="FalconCAD.App.Views.MainWindow"
         x:DataType="vm:MainViewModel"
         Icon="/Assets/avalonia-logo.ico"
-        Title="FalconCAD - Schematic">
+        Title="{Binding Title}">
 
     <Design.DataContext>
         <vm:MainViewModel />
@@ -37,9 +37,14 @@
     <DockPanel>
         <Menu DockPanel.Dock="Top">
             <MenuItem Header="_File">
+                <MenuItem Header="_Open..." InputGesture="Ctrl+O" Click="OnOpen" />
+                <Separator />
                 <MenuItem Header="E_xit" Click="OnExit" />
             </MenuItem>
             <MenuItem Header="_Edit">
+                <MenuItem Header="_Undo" InputGesture="Ctrl+Z" Command="{Binding RunTextCommand}" CommandParameter="UNDO" />
+                <MenuItem Header="_Redo" InputGesture="Ctrl+Y" Command="{Binding RunTextCommand}" CommandParameter="REDO" />
+                <Separator />
                 <MenuItem Header="_Delete" Command="{Binding RunTextCommand}" CommandParameter="DELETE" />
             </MenuItem>
             <MenuItem Header="_Draw">
@@ -55,7 +60,18 @@
         </Menu>
 
         <!-- Main toolbar -->
-        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,2">
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="4,2" Spacing="2">
+            <Button Classes="tool" ToolTip.Tip="Open (Ctrl+O)" Click="OnOpen">
+                <Path Data="M3,6 H9 L11,8 H21 V19 H3 Z" />
+            </Button>
+            <ComboBox ItemsSource="{Binding SheetNames}" SelectedIndex="{Binding SheetIndex}"
+                      ToolTip.Tip="Sheet (EDIT .s2)" MinWidth="70" VerticalAlignment="Center" Margin="4,0" />
+            <Button Classes="tool" ToolTip.Tip="Undo (Ctrl+Z)" Command="{Binding RunTextCommand}" CommandParameter="UNDO">
+                <Path Data="M8,5 L3,10 L8,15 M3,10 H15 A5,5 0 0 1 15,20 H11" />
+            </Button>
+            <Button Classes="tool" ToolTip.Tip="Redo (Ctrl+Y)" Command="{Binding RunTextCommand}" CommandParameter="REDO">
+                <Path Data="M16,5 L21,10 L16,15 M21,10 H9 A5,5 0 0 0 9,20 H13" />
+            </Button>
             <Button Classes="tool" ToolTip.Tip="Fit (WINDOW FIT)" Command="{Binding RunTextCommand}" CommandParameter="WINDOW FIT">
                 <Path Data="M3,9 V3 H9 M15,3 H21 V9 M21,15 V21 H15 M9,21 H3 V15" />
             </Button>
