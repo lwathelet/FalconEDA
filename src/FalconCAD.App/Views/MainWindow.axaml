@@ -1,0 +1,39 @@
+<Window xmlns="https://github.com/avaloniaui"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:vm="using:FalconCAD.App.ViewModels"
+        xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
+        xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
+        mc:Ignorable="d" d:DesignWidth="1000" d:DesignHeight="650"
+        x:Class="FalconCAD.App.Views.MainWindow"
+        x:DataType="vm:MainViewModel"
+        Icon="/Assets/avalonia-logo.ico"
+        Title="FalconCAD">
+
+    <Design.DataContext>
+        <vm:MainViewModel />
+    </Design.DataContext>
+
+    <DockPanel>
+        <!-- Command line: the heart of the Eagle-style workflow -->
+        <TextBox DockPanel.Dock="Top"
+                 Text="{Binding CommandText}"
+                 PlaceholderText="Type a command, e.g. ROUTE 0.2 (0 0) (10 0);"
+                 FontFamily="Consolas">
+            <TextBox.KeyBindings>
+                <KeyBinding Gesture="Enter" Command="{Binding RunCommandCommand}" />
+            </TextBox.KeyBindings>
+        </TextBox>
+
+        <ListBox DockPanel.Dock="Bottom" Height="120"
+                 ItemsSource="{Binding Log}"
+                 FontFamily="Consolas" />
+
+        <!-- Editor canvas will go here -->
+        <Border Background="#1E1E1E">
+            <TextBlock Text="Editor canvas"
+                       Foreground="Gray"
+                       HorizontalAlignment="Center"
+                       VerticalAlignment="Center" />
+        </Border>
+    </DockPanel>
+</Window>
