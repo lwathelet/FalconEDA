@@ -240,7 +240,7 @@ public sealed class SheetView
     {
         // Rotate with the symbol; a mirror then reflects the direction (angle -> -angle) and swaps left/right alignment.
         var angle = rotation.Angle + transform.Rotation.Angle;
-        if (transform.Rotation.Mirror)
+        if (transform.Rotation.Mirror ^ rotation.Mirror)
         {
             angle = -angle;
             align = align.FlipH();
@@ -256,8 +256,19 @@ public sealed class SheetView
         Texts.Add(new TextPrimitive(value, transform.Apply(position), size, angle, align, layer));
     }
 
-    /// <summary>Replaces Eagle text variables such as &gt;NAME, &gt;VALUE or &gt;SHEET. Returns the text unchanged if it is not one.</summary>
+    /// <summary>
+    /// Replaces Eagle text variables such as &gt;NAME, &gt;VALUE or &gt;SHEET. Returns the text unchanged if it is not one.
+    /// A part marked DNP shows "DNP" after its value.
+    /// </summary>
     private string? ResolvePlaceholder(string text, Part? part, Instance? instance)
+    {
+        var resolved = ResolveVariable(text, part, instance);
+        if (part is not null && Values.IsDnp(part) && text.ToUpperInvariant() is ">VALUE" or ">VAL")
+            return string.IsNullOrEmpty(resolved) ? Values.Dnp : $"{resolved} {Values.Dnp}";
+        return resolved;
+    }
+
+    private string? ResolveVariable(string text, Part? part, Instance? instance)
     {
         if (!text.StartsWith('>') || text.Length < 2)
             return text;
@@ -297,6 +308,8 @@ public sealed class SheetView
             return technologyValue;
         if (_schematic.Attributes.TryGetValue(key, out var globalValue))
             return globalValue;
-        return text;
+
+        // A part attribute nobody defined shows nothing, as in Eagle; elsewhere the text stays as written.
+        return part is not null ? "" : text;
     }
 }

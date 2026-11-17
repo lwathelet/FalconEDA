@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
 using Avalonia;
@@ -9,6 +10,8 @@ using Avalonia.Platform.Storage;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
 using FalconEDA.App.ViewModels;
+using FalconEDA.Commands;
+using FalconEDA.Core;
 
 namespace FalconEDA.App.Views;
 
@@ -30,7 +33,11 @@ public partial class MainWindow : Window
         DataContextChanged += (_, _) =>
         {
             if (ViewModel is { } vm)
+            {
                 vm.SaveAsRequested += async () => await SaveAsAsync();
+                vm.Editor.AddDialogRequested += async filter => await ChoosePartAsync(filter);
+                vm.Editor.ValueDialogRequested += async part => await ChooseValueAsync(part);
+            }
         };
 
         Closing += OnClosing;
@@ -187,6 +194,94 @@ public partial class MainWindow : Window
             _closeConfirmed = true;
             Close();
         }
+    }
+
+    /// <summary>The library browser for ADD; the chosen device is added with the ADD command.</summary>
+    private async Task ChoosePartAsync(string? filter)
+    {
+        if (ViewModel is not { } vm)
+            return;
+        var choice = await new AddPartDialog(vm.Libraries, filter).ShowDialog<string?>(this);
+        if (choice is null)
+        {
+            CommandBox.Focus();
+            return;
+        }
+
+        // A component with a list of values: choose the value before placing it.
+        var command = $"ADD {Quote(choice)}";
+        try
+        {
+            var (library, deviceSet, deviceName, _) = CommandExecutor.FindDevice(vm.Editor, choice);
+            var device = deviceSet.Devices[deviceName];
+            var values = Values.Of(device);
+            if (values.Count > 0)
+            {
+                var picked = await new ValueDialog($"ADD {deviceSet.Name}{deviceName}: value", values, null, null, false, false, showFlags: false)
+                    .ShowDialog<ValueChoice?>(this);
+                if (picked is null)
+                {
+                    CommandBox.Focus();
+                    return;
+                }
+                var value = picked.NewVal is not null
+                    ? CommandExecutor.AddValueToLibrary(vm.Editor, library, deviceSet.Name, device, picked.NewVal, picked.NewMnf ?? "", picked.NewRef ?? "")
+                    : picked.Picked;
+                if (value is not null)
+                    command += $" {Quote("VALUE=" + value.Val)}";
+            }
+        }
+        catch (Exception ex) when (ex is CommandException or ArgumentException or System.IO.IOException)
+        {
+            vm.Status = "Error: " + ex.Message;
+            CommandBox.Focus();
+            return;
+        }
+
+        vm.RunTextCommand.Execute(command);
+        CommandBox.Focus();
+    }
+
+    /// <summary>The value table for a part (VALUE); what is chosen is done with the VALUE, DNP and NO_BOM commands.</summary>
+    private async Task ChooseValueAsync(string partName)
+    {
+        if (ViewModel is not { } vm || !vm.Editor.Schematic.Parts.TryGetValue(partName, out var part))
+            return;
+
+        var device = CommandExecutor.DeviceOf(vm.Editor.Schematic, part);
+        var values = device is null ? [] : Values.Of(device);
+        var dnp = Values.IsDnp(part);
+        var noBom = Values.IsNoBom(part);
+        var choice = await new ValueDialog($"VALUE {part.Name} ({part.DeviceSet}{part.Device})", values, part.Technology,
+            vm.Editor.Schematic.ValueOf(part), dnp, noBom, showFlags: true).ShowDialog<ValueChoice?>(this);
+        if (choice is not null)
+        {
+            if (choice.NewVal is not null)
+                vm.RunTextCommand.Execute($"VALUE {part.Name} {Quote(choice.NewVal)} {Quote(choice.NewMnf ?? "")} {Quote(choice.NewRef ?? "")}");
+            else if (choice.Picked is not null && choice.Picked.Technology != part.Technology)
+                vm.RunTextCommand.Execute($"VALUE {part.Name} {Quote(choice.Picked.Technology)}");
+            else if (choice.FreeValue is not null && choice.FreeValue != part.Value)
+                vm.RunTextCommand.Execute($"VALUE {part.Name} {Quote(choice.FreeValue)}");
+
+            if (choice.Dnp != dnp)
+                vm.RunTextCommand.Execute($"DNP {part.Name} {(choice.Dnp ? "ON" : "OFF")}");
+            if (choice.NoBom != noBom)
+                vm.RunTextCommand.Execute($"NO_BOM {part.Name} {(choice.NoBom ? "ON" : "OFF")}");
+        }
+        CommandBox.Focus();
+    }
+
+    /// <summary>Text for the command line: in quotes when it has spaces or quotes are needed.</summary>
+    private static string Quote(string text) => text.Length > 0 && !text.Any(char.IsWhiteSpace) && !text.Contains(';') ? text : $"'{text}'";
+
+    private async void OnLibraryFolders(object? sender, RoutedEventArgs e)
+    {
+        if (ViewModel is not { } vm)
+            return;
+        var folders = await new LibraryFoldersDialog(vm.Settings.LibraryFolders).ShowDialog<List<string>?>(this);
+        if (folders is not null)
+            vm.SetLibraryFolders(folders);
+        CommandBox.Focus();
     }
 
     private void OnExit(object? sender, RoutedEventArgs e) => Close();

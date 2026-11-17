@@ -25,6 +25,19 @@ public sealed class Editor
     /// <summary>What COPY or CUT put on the clipboard for PASTE.</summary>
     public ClipboardContent? Clipboard { get; set; }
 
+    /// <summary>Where ADD finds library files.</summary>
+    public ILibraryProvider? LibraryProvider { get; set; }
+
+    /// <summary>Raised by ADD without a device: the app opens the library browser, optionally filtered.</summary>
+    public event Action<string?>? AddDialogRequested;
+
+    public void RequestAddDialog(string? filter) => AddDialogRequested?.Invoke(filter);
+
+    /// <summary>Raised by VALUE for a part: the app shows the table of the part's values.</summary>
+    public event Action<string>? ValueDialogRequested;
+
+    public void RequestValueDialog(string part) => ValueDialogRequested?.Invoke(part);
+
     /// <summary>Raised when the drawing, grid or tool changes.</summary>
     public event Action? Changed;
 
@@ -32,7 +45,7 @@ public sealed class Editor
     public event Action<string?>? SaveRequested;
 
     /// <summary>True when there are changes that have not been saved.</summary>
-    public bool IsModified => Schematic.Sheets.Any(s => s.Modified);
+    public bool IsModified => Schematic.PartsModified || Schematic.Sheets.Any(s => s.Modified);
 
     /// <summary>Raised to change the view: a zoom factor, or null to fit the drawing.</summary>
     public event Action<double?>? ZoomRequested;

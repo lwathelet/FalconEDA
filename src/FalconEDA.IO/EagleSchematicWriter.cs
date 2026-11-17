@@ -13,38 +13,33 @@ namespace FalconEDA.IO;
 /// </summary>
 public static class EagleSchematicWriter
 {
-    /// <summary>Like Eagle, keep the previous versions as name.s#1 (newest) to name.s#9.</summary>
-    public const int BackupCount = 9;
-
     /// <summary>Saves to <paramref name="path"/>, rotating backups of the file it replaces.</summary>
     public static void Save(Schematic schematic, string path)
     {
-        var temp = path + ".tmp";
-        using (var stream = File.Create(temp))
-            Write(schematic, stream);
-
-        if (File.Exists(path))
-        {
-            RotateBackups(path);
-            File.Copy(path, BackupPath(path, 1), overwrite: true);
-        }
-        File.Move(temp, path, overwrite: true);
+        SafeFile.Write(path, 's', stream => Write(schematic, stream));
 
         schematic.Name = Path.GetFileNameWithoutExtension(path);
         foreach (var sheet in schematic.Sheets)
             sheet.Modified = false;
+        schematic.PartsModified = false;
     }
 
     public static void Write(Schematic schematic, Stream stream)
     {
-        var document = SourceDocuments.Get(schematic) is { } source ? new XDocument(source) : CreateDocument(schematic);
+        // The XML read from the file is changed in place: wires, parts and instances know their element in it,
+        // which lets unchanged and moved objects keep their exact XML. Afterwards it matches the file written.
+        var document = SourceDocuments.Get(schematic) ?? CreateDocument(schematic);
+        SourceDocuments.Set(schematic, document);
         var schematicElement = document.Root!.Element("drawing")!.Element("schematic")!;
         var sheets = GetOrAdd(schematicElement, "sheets", "description", "libraries", "attributes", "variantdefs", "classes", "modules", "parts");
         var sheetElements = sheets.Elements("sheet").ToList();
 
         // Parts and libraries belong to the whole schematic; they can only have changed together with a sheet.
-        if (schematic.Sheets.Any(s => s.Modified))
+        if (schematic.PartsModified || schematic.Sheets.Any(s => s.Modified))
+        {
+            WriteMissingLayers(schematic, document.Root!.Element("drawing")!);
             WritePartsAndLibraries(schematic, schematicElement);
+        }
 
         for (var i = 0; i < schematic.Sheets.Count; i++)
         {
@@ -62,49 +57,210 @@ public static class EagleSchematicWriter
             WriteSheet(schematic, sheet, sheetElements[i]);
         }
 
-        // The reader keeps the line breaks between elements as text. Next to new elements they would stop the
-        // writer from putting each element on its own line, so remove them; text inside elements stays.
-        document.DescendantNodes().OfType<XText>()
-            .Where(t => string.IsNullOrWhiteSpace(t.Value) && (t.Parent is null || t.Parent.HasElements))
-            .ToList()
-            .ForEach(t => t.Remove());
-
-        // Eagle files carry <!DOCTYPE eagle SYSTEM "eagle.dtd">; the reader skips it, so put it back.
-        document.DocumentType?.Remove();
-        document.AddFirst(new XDocumentType("eagle", null, "eagle.dtd", null));
-
-        // Like Eagle: one element per line, no indentation, UTF-8 without byte order mark.
-        var settings = new XmlWriterSettings
-        {
-            Encoding = new UTF8Encoding(false),
-            Indent = true,
-            IndentChars = "",
-            NewLineChars = "\n",
-        };
-        using var writer = XmlWriter.Create(stream, settings);
-        document.Save(writer);
+        EagleXml.Save(document, stream);
     }
 
+    /// <summary>
+    /// Writes a changed sheet. Whatever did not change (each net, the plain wires, each part) keeps the exact XML
+    /// it was read from, so the file only differs from the original where something was edited.
+    /// </summary>
     private static void WriteSheet(Schematic schematic, Sheet sheet, XElement element)
     {
         // The sheet's children must stay in DTD order: description, plain, moduleinsts, instances, busses, nets.
         var plain = GetOrAdd(element, "plain", "description");
-        plain.Elements("wire").Remove();
-        plain.AddFirst(sheet.Wires.Select(WireElement));
+        if (!SameWires(plain.Elements("wire").Select(EagleSchematicReader.ReadWire), sheet.Wires))
+        {
+            plain.Elements("wire").Remove();
+            plain.AddFirst(sheet.Wires.Select(WireElement));
+        }
 
         var instances = GetOrAdd(element, "instances", "description", "plain", "moduleinsts");
-        instances.RemoveNodes();
-        instances.Add(sheet.Instances.Select(InstanceElement));
+        var newInstances = sheet.Instances.Select(InstanceElement).ToList();
+        if (!instances.Elements().Select(e => e.ToString()).SequenceEqual(newInstances.Select(e => e.ToString())))
+        {
+            instances.RemoveNodes();
+            instances.Add(newInstances);
+        }
+        foreach (var (instance, written) in sheet.Instances.Zip(instances.Elements()))
+            instance.Source = written;
 
         var busses = GetOrAdd(element, "busses", "description", "plain", "moduleinsts", "instances");
-        busses.RemoveNodes();
-        foreach (var bus in sheet.Busses)
-            busses.Add(NetElement("bus", bus, schematic, sheet, withPins: false));
+        WriteNets(busses, "bus", sheet.Busses, schematic, sheet);
 
         var nets = GetOrAdd(element, "nets", "description", "plain", "moduleinsts", "instances", "busses");
-        nets.RemoveNodes();
-        foreach (var net in sheet.Nets)
-            nets.Add(NetElement("net", net, schematic, sheet, withPins: true));
+        WriteNets(nets, "net", sheet.Nets, schematic, sheet);
+    }
+
+    /// <summary>Writes the nets (or busses), keeping the original XML of every one that did not change.</summary>
+    private static void WriteNets(XElement list, string name, IReadOnlyList<Net> nets, Schematic schematic, Sheet sheet)
+    {
+        var original = list.Elements(name)
+            .GroupBy(e => (string?)e.Attribute("name") ?? "")
+            .ToDictionary(g => g.Key, g => g.First());
+        var written = nets.Select(net =>
+            original.TryGetValue(net.Name, out var element)
+            && (SameNet(EagleSchematicReader.ReadNet(element), net) || TryUpdateInPlace(element, net, schematic, sheet))
+                ? element
+                : NetElement(name, net, schematic, sheet, withPins: name == "net")).ToList();
+
+        if (written.Count == list.Elements(name).Count() && written.Zip(list.Elements(name)).All(p => ReferenceEquals(p.First, p.Second)))
+            return;
+        list.RemoveNodes();
+        list.Add(written.Select(e => e.Parent is null ? e : new XElement(e)));
+    }
+
+    /// <summary>
+    /// A net whose wires, labels and junctions moved, or that got extra wires or pins (as when a part is moved and
+    /// its nets stretch), is updated in its original XML: coordinates change in place, a new wire goes into the
+    /// segment it connects to (segments it joins are merged), a removed wire is taken out, and everything else
+    /// stays in Eagle's order. Returns false when that is not enough (pins or labels removed, a segment falling
+    /// apart); then the net is written anew.
+    /// </summary>
+    private static bool TryUpdateInPlace(XElement element, Net net, Schematic schematic, Sheet sheet)
+    {
+        // Wires that are gone (e.g. a short wire that shrank to nothing when a part was moved back).
+        var modelSources = net.Wires.Select(w => w.Source).OfType<XElement>().ToHashSet();
+        foreach (var removed in element.Descendants("wire").Where(w => !modelSources.Contains(w)).ToList())
+        {
+            var segment = removed.Parent!;
+            removed.Remove();
+            if (!segment.HasElements)
+                segment.Remove();
+        }
+
+        var wireElements = element.Descendants("wire").ToList();
+        var labelElements = element.Descendants("label").ToList();
+        var junctionElements = element.Descendants("junction").ToList();
+        var known = net.Wires.Where(w => w.Source is XElement s && wireElements.Contains(s)).ToList();
+        var added = net.Wires.Except(known).ToList();
+        var labelSources = net.Labels.Select(l => l.Source as XElement).ToList();
+
+        static string PinKey(PinRef p) => $"{p.Part}/{p.Gate}/{p.Pin}";
+        var xmlPins = element.Descendants("pinref").Select(p => new PinRef(
+            (string?)p.Attribute("part") ?? "", (string?)p.Attribute("gate") ?? "", (string?)p.Attribute("pin") ?? "")).ToList();
+        var addedPins = net.PinRefs.Where(p => !xmlPins.Contains(p)).ToList();
+
+        if (known.Count != wireElements.Count || known.Select(w => w.Source).Distinct().Count() != known.Count
+            || labelSources.Count != labelElements.Count || !labelSources.All(s => s is not null && labelElements.Contains(s))
+            || junctionElements.Count != net.Junctions.Count
+            || !xmlPins.All(net.PinRefs.Contains) || xmlPins.Select(PinKey).Distinct().Count() != xmlPins.Count)
+            return false;
+
+        // Where new wires and pins go: the segment holding a wire they touch, or listing a pin at that point.
+        var segmentOf = known.ToDictionary(w => w, w => ((XElement)w.Source!).Parent!);
+        var pinSegments = element.Descendants("pinref")
+            .Select(p => (Segment: p.Parent!, Position: schematic.PinPosition(sheet, new PinRef(
+                (string?)p.Attribute("part") ?? "", (string?)p.Attribute("gate") ?? "", (string?)p.Attribute("pin") ?? ""))))
+            .Where(x => x.Position is not null)
+            .ToList();
+        XElement? SegmentTouching(Point p) =>
+            segmentOf.FirstOrDefault(x => x.Key.DistanceTo(p) < GeometryMath.Epsilon).Value
+            ?? pinSegments.FirstOrDefault(x => GeometryMath.SamePoint(x.Position!.Value, p)).Segment;
+
+        foreach (var wire in added)
+        {
+            var segments = new[] { SegmentTouching(wire.From), SegmentTouching(wire.To) }.OfType<XElement>().Distinct().ToList();
+            var segment = segments.FirstOrDefault();
+            if (segment is null)
+            {
+                segment = new XElement("segment");
+                element.Add(segment);
+            }
+            foreach (var other in segments.Skip(1))
+            {
+                // The new wire joins two segments into one.
+                segment.Add(other.Elements());
+                foreach (var key in segmentOf.Where(x => x.Value == other).Select(x => x.Key).ToList())
+                    segmentOf[key] = segment;
+                other.Remove();
+            }
+            var wireElement = WireElement(wire);
+            var lastWire = segment.Elements("wire").LastOrDefault();
+            if (lastWire is null)
+                segment.Add(wireElement);
+            else
+                lastWire.AddAfterSelf(wireElement);
+            segmentOf[wire] = segment;
+        }
+
+        foreach (var pin in addedPins)
+        {
+            if (schematic.PinPosition(sheet, pin) is not { } position || SegmentTouching(position) is not { } segment)
+                return false;
+            var pinElement = new XElement("pinref",
+                new XAttribute("part", pin.Part), new XAttribute("gate", pin.Gate), new XAttribute("pin", pin.Pin));
+            var lastPin = segment.Elements("pinref").LastOrDefault();
+            if (lastPin is null)
+                segment.AddFirst(pinElement);
+            else
+                lastPin.AddAfterSelf(pinElement);
+        }
+
+        foreach (var wire in known)
+        {
+            var e = (XElement)wire.Source!;
+            SetNumber(e, "x1", wire.From.X);
+            SetNumber(e, "y1", wire.From.Y);
+            SetNumber(e, "x2", wire.To.X);
+            SetNumber(e, "y2", wire.To.Y);
+            if (e.Attribute("curve") is not null || wire.Curve != 0)
+                SetNumber(e, "curve", wire.Curve);
+        }
+        foreach (var label in net.Labels)
+        {
+            var e = (XElement)label.Source!;
+            SetNumber(e, "x", label.Position.X);
+            SetNumber(e, "y", label.Position.Y);
+            if (Rotation.Parse((string?)e.Attribute("rot")) != label.Rotation)
+                e.SetAttributeValue("rot", label.Rotation == default ? null : label.Rotation.ToString());
+        }
+        for (var i = 0; i < junctionElements.Count; i++)
+        {
+            SetNumber(junctionElements[i], "x", net.Junctions[i].X);
+            SetNumber(junctionElements[i], "y", net.Junctions[i].Y);
+        }
+
+        // Each segment must still be one connected piece; if a removal cut one in two, write the net anew.
+        var wireOf = net.Wires.Where(w => w.Source is XElement).ToDictionary(w => (XElement)w.Source!);
+        return element.Elements("segment").All(segment =>
+            Net.ConnectedGroups(segment.Elements("wire").Select(e => wireOf[e]).ToList()).Count <= 1);
+    }
+
+    private static bool SameNet(Net a, Net b) =>
+        a.Name == b.Name && a.Class == b.Class && SameWires(a.Wires, b.Wires)
+        && Canonical(a.PinRefs, p => $"{p.Part}/{p.Gate}/{p.Pin}").SequenceEqual(Canonical(b.PinRefs, p => $"{p.Part}/{p.Gate}/{p.Pin}"))
+        && Canonical(a.Junctions, Key).SequenceEqual(Canonical(b.Junctions, Key))
+        && Canonical(a.Labels, LabelKey).SequenceEqual(Canonical(b.Labels, LabelKey));
+
+    private static bool SameWires(IEnumerable<Wire> a, IEnumerable<Wire> b) =>
+        Canonical(a, WireKey).SequenceEqual(Canonical(b, WireKey));
+
+    private static IEnumerable<string> Canonical<T>(IEnumerable<T> items, Func<T, string> key) => items.Select(key).Order(StringComparer.Ordinal);
+
+    private static string Key(Point p) => $"{Number(p.X)},{Number(p.Y)}";
+
+    private static string WireKey(Wire w) =>
+        $"{Key(w.From)};{Key(w.To)};{Number(w.Width)};{w.Layer};{Number(w.Curve)};{w.Style};{w.Cap}";
+
+    private static string LabelKey(Label l) => $"{Key(l.Position)};{Number(l.Size)};{l.Layer};{l.Rotation};{l.Align};{l.Xref}";
+
+    /// <summary>Adds the layers that symbols added from library files use and the file does not define yet.</summary>
+    private static void WriteMissingLayers(Schematic schematic, XElement drawing)
+    {
+        var layers = GetOrAdd(drawing, "layers", "settings", "grid");
+        var present = layers.Elements("layer").Select(l => (int?)l.Attribute("number")).ToHashSet();
+        foreach (var layer in schematic.Layers.Where(l => !present.Contains(l.Number)))
+        {
+            var element = new XElement("layer",
+                new XAttribute("number", layer.Number), new XAttribute("name", layer.Name),
+                new XAttribute("color", layer.Color), new XAttribute("fill", 1),
+                new XAttribute("visible", layer.Visible ? "yes" : "no"), new XAttribute("active", "yes"));
+            var after = layers.Elements("layer").LastOrDefault(l => (int?)l.Attribute("number") < layer.Number);
+            if (after is null)
+                layers.AddFirst(element);
+            else
+                after.AddAfterSelf(element);
+        }
     }
 
     /// <summary>
@@ -119,8 +275,15 @@ public static class EagleSchematicWriter
             .ToHashSet();
         foreach (var (key, library) in schematic.Libraries)
         {
-            if (!present.Contains(key) && library.Source is XElement source)
-                libraries.Add(new XElement(source));
+            if (present.Contains(key))
+                continue;
+
+            // A library first used through ADD has no XML of its own yet; its items are filled in below.
+            libraries.Add(library.Source is XElement source
+                ? new XElement(source)
+                : new XElement("library",
+                    new XAttribute("name", library.Name),
+                    library.Urn.Length > 0 ? new XAttribute("urn", library.Urn) : null));
         }
         foreach (var element in libraries.Elements("library"))
         {
@@ -137,7 +300,30 @@ public static class EagleSchematicWriter
             if (part.Source is XElement source)
             {
                 element = new XElement(source);
+                part.Source = element;
                 element.SetAttributeValue("name", part.Name);
+                SetIfChanged(element, "technology", part.Technology.Length > 0 ? part.Technology : null);
+                SetIfChanged(element, "value", part.Value);
+
+                // The part's own attributes (VAL overrides, DNP, NO_BOM...), keeping those that did not change as they were.
+                foreach (var child in element.Elements("attribute").ToList())
+                {
+                    var name = (string?)child.Attribute("name") ?? "";
+                    if (!part.Attributes.TryGetValue(name, out var value))
+                        child.Remove();
+                    else
+                        SetIfChanged(child, "value", value);
+                }
+                var existing = element.Elements("attribute").Select(a => (string?)a.Attribute("name")).ToHashSet(StringComparer.OrdinalIgnoreCase);
+                var firstOther = element.Elements().FirstOrDefault(e => e.Name != "attribute");
+                foreach (var (name, value) in part.Attributes.Where(a => !existing.Contains(a.Key)))
+                {
+                    var attribute = new XElement("attribute", new XAttribute("name", name), new XAttribute("value", value));
+                    if (firstOther is null)
+                        element.Add(attribute);
+                    else
+                        firstOther.AddBeforeSelf(attribute);
+                }
             }
             else
             {
@@ -149,7 +335,8 @@ public static class EagleSchematicWriter
                     new XAttribute("deviceset", part.DeviceSet),
                     new XAttribute("device", part.Device),
                     part.Technology.Length > 0 ? new XAttribute("technology", part.Technology) : null,
-                    part.Value is null ? null : new XAttribute("value", part.Value));
+                    part.Value is null ? null : new XAttribute("value", part.Value),
+                    part.Attributes.Select(a => new XElement("attribute", new XAttribute("name", a.Key), new XAttribute("value", a.Value))));
             }
             parts.Add(element);
         }
@@ -168,10 +355,31 @@ public static class EagleSchematicWriter
 
         foreach (var deviceSet in library.DeviceSets.Values)
         {
-            if (existingSets.Contains(deviceSet.Name) || deviceSet.Source is not XElement source)
+            if (existingSets.Contains(deviceSet.Name))
+            {
+                // Values added to a device's list show up as technologies the XML does not have yet.
+                var element = deviceSets.Elements("deviceset").First(e => (string?)e.Attribute("name") == deviceSet.Name);
+                foreach (var device in deviceSet.Devices.Values)
+                {
+                    var deviceElement = element.Element("devices")?.Elements("device").FirstOrDefault(e => ((string?)e.Attribute("name") ?? "") == device.Name);
+                    if (deviceElement is not null)
+                        AddMissingTechnologies(deviceElement, device);
+                }
                 continue;
-            deviceSets.Add(new XElement(source));
+            }
+            if (deviceSet.Source is not XElement source)
+                continue;
+            var copied = new XElement(source);
+            deviceSets.Add(copied);
             existingSets.Add(deviceSet.Name);
+
+            // Values added since the library file was read are not in its XML yet.
+            foreach (var device in deviceSet.Devices.Values)
+            {
+                var deviceElement = copied.Element("devices")?.Elements("device").FirstOrDefault(e => ((string?)e.Attribute("name") ?? "") == device.Name);
+                if (deviceElement is not null)
+                    AddMissingTechnologies(deviceElement, device);
+            }
 
             foreach (var gate in deviceSet.Gates.Values)
             {
@@ -198,6 +406,30 @@ public static class EagleSchematicWriter
         }
     }
 
+    /// <summary>Adds the device's technologies that its XML lacks, in name order like Eagle.</summary>
+    public static void AddMissingTechnologies(XElement deviceElement, Device device)
+    {
+        var technologies = deviceElement.Element("technologies");
+        if (technologies is null)
+        {
+            technologies = new XElement("technologies");
+            deviceElement.Add(technologies);
+        }
+        var present = technologies.Elements("technology").Select(t => (string?)t.Attribute("name") ?? "").ToHashSet();
+        foreach (var (name, attributes) in device.Technologies.Where(t => !present.Contains(t.Key)))
+        {
+            var technology = new XElement("technology", new XAttribute("name", name),
+                attributes.Select(a => new XElement("attribute",
+                    new XAttribute("name", a.Key), new XAttribute("value", a.Value),
+                    a.Key.Equals("PACKAGE", StringComparison.OrdinalIgnoreCase) ? null : new XAttribute("constant", "no"))));
+            var after = technologies.Elements("technology").LastOrDefault(t => string.CompareOrdinal((string?)t.Attribute("name") ?? "", name) < 0);
+            if (after is null)
+                technologies.AddFirst(technology);
+            else
+                after.AddAfterSelf(technology);
+        }
+    }
+
     private static void CopyMissing(XElement? fromLibrary, XElement toLibrary, string listName, string itemName,
         string keyAttribute, string key, params string[] before)
     {
@@ -209,6 +441,23 @@ public static class EagleSchematicWriter
             list.Add(new XElement(item));
     }
 
+    /// <summary>Sets a coordinate only when the number differs, so "50.80" written by another program stays as it is.</summary>
+    private static void SetNumber(XElement element, string name, double value)
+    {
+        if ((string?)element.Attribute(name) is { } text
+            && double.TryParse(text, NumberStyles.Float, CultureInfo.InvariantCulture, out var old)
+            && Math.Abs(old - value) < 1e-9)
+            return;
+        element.SetAttributeValue(name, Number(value));
+    }
+
+    /// <summary>Sets an XML attribute only when its value differs, so unchanged attributes keep their exact text.</summary>
+    private static void SetIfChanged(XElement element, string name, string? value)
+    {
+        if ((string?)element.Attribute(name) != value)
+            element.SetAttributeValue(name, value);
+    }
+
     /// <summary>An instance, based on its original XML with position, orientation and smashed texts updated.</summary>
     private static XElement InstanceElement(Instance instance)
     {
@@ -217,8 +466,8 @@ public static class EagleSchematicWriter
             : new XElement("instance", new XAttribute("part", ""), new XAttribute("gate", instance.Gate));
 
         element.SetAttributeValue("part", instance.Part);
-        element.SetAttributeValue("x", Number(instance.Position.X));
-        element.SetAttributeValue("y", Number(instance.Position.Y));
+        SetNumber(element, "x", instance.Position.X);
+        SetNumber(element, "y", instance.Position.Y);
         if (instance.Smashed)
             element.SetAttributeValue("smashed", "yes");
         element.SetAttributeValue("rot", instance.Rotation == default ? null : instance.Rotation.ToString());
@@ -234,10 +483,11 @@ public static class EagleSchematicWriter
             }
             if (attribute.Position is { } p)
             {
-                child.SetAttributeValue("x", Number(p.X));
-                child.SetAttributeValue("y", Number(p.Y));
+                SetNumber(child, "x", p.X);
+                SetNumber(child, "y", p.Y);
             }
             child.SetAttributeValue("rot", attribute.Rotation == default ? null : attribute.Rotation.ToString());
+            child.SetAttributeValue("align", attribute.Align == Align.BottomLeft ? null : AlignName(attribute.Align));
         }
         return element;
     }
@@ -316,6 +566,7 @@ public static class EagleSchematicWriter
             if (w.Cap != "round")
                 element.Add(new XAttribute("cap", w.Cap));
         }
+        w.Source = element;
         return element;
     }
 
@@ -329,6 +580,7 @@ public static class EagleSchematicWriter
             element.Add(new XAttribute("xref", "yes"));
         if (l.Align != Align.BottomLeft)
             element.Add(new XAttribute("align", AlignName(l.Align)));
+        l.Source = element;
         return element;
     }
 
@@ -388,18 +640,6 @@ public static class EagleSchematicWriter
 
     private static string Number(double value) =>
         (Math.Round(value, 6) + 0.0).ToString("0.######", CultureInfo.InvariantCulture);
-
-    private static string BackupPath(string path, int number) => Path.ChangeExtension(path, $".s#{number}");
-
-    private static void RotateBackups(string path)
-    {
-        File.Delete(BackupPath(path, BackupCount));
-        for (var i = BackupCount - 1; i >= 1; i--)
-        {
-            if (File.Exists(BackupPath(path, i)))
-                File.Move(BackupPath(path, i), BackupPath(path, i + 1));
-        }
-    }
 
     private sealed class Segment(List<Wire> wires)
     {

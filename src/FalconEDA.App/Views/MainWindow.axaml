@@ -49,14 +49,22 @@
                 <MenuItem Header="Delete _group" InputGesture="Delete" Command="{Binding DeleteSelectionCommand}" />
                 <MenuItem Header="Select _all" Command="{Binding RunTextCommand}" CommandParameter="GROUP ALL" />
                 <Separator />
+                <MenuItem Header="_Value..." Command="{Binding RunTextCommand}" CommandParameter="VALUE" />
+                <MenuItem Header="D_NP on/off" Command="{Binding RunTextCommand}" CommandParameter="DNP" />
+                <MenuItem Header="Not in _BOM on/off" Command="{Binding RunTextCommand}" CommandParameter="NO_BOM" />
+                <Separator />
                 <MenuItem Header="_Move" Command="{Binding RunTextCommand}" CommandParameter="MOVE" />
                 <MenuItem Header="R_otate" Command="{Binding RunTextCommand}" CommandParameter="ROTATE" />
                 <MenuItem Header="M_irror" Command="{Binding RunTextCommand}" CommandParameter="MIRROR" />
                 <MenuItem Header="_Delete" Command="{Binding RunTextCommand}" CommandParameter="DELETE" />
             </MenuItem>
             <MenuItem Header="_Draw">
+                <MenuItem Header="_Add part..." Command="{Binding RunTextCommand}" CommandParameter="ADD" />
                 <MenuItem Header="_Net" Command="{Binding RunTextCommand}" CommandParameter="NET" />
                 <MenuItem Header="_Wire" Command="{Binding RunTextCommand}" CommandParameter="WIRE" />
+            </MenuItem>
+            <MenuItem Header="_Options">
+                <MenuItem Header="_Library folders..." Click="OnLibraryFolders" />
             </MenuItem>
             <MenuItem Header="_View">
                 <MenuItem Header="_Fit" Command="{Binding RunTextCommand}" CommandParameter="WINDOW FIT" />
@@ -118,6 +126,12 @@
 
         <!-- Tool palette -->
         <StackPanel DockPanel.Dock="Left" Margin="2">
+            <Button Classes="tool" ToolTip.Tip="Add a part (ADD)" Command="{Binding RunTextCommand}" CommandParameter="ADD">
+                <Path Data="M7,4 H17 V20 H7 Z M3,8 H7 M3,16 H7 M17,8 H21 M17,16 H21 M10,12 H14 M12,10 V14" />
+            </Button>
+            <Button Classes="tool" ToolTip.Tip="Value (VALUE)" Command="{Binding RunTextCommand}" CommandParameter="VALUE">
+                <Path Data="M3,6 H21 V18 H3 Z M7,10 L9,14 L11,10 M14,10 V14 H17" />
+            </Button>
             <Button Classes="tool" ToolTip.Tip="Group: drag a rectangle (GROUP)" Command="{Binding RunTextCommand}" CommandParameter="GROUP">
                 <Path Data="M3,3 H8 M11,3 H16 M19,3 H21 V8 M21,11 V16 M21,19 V21 H16 M13,21 H8 M5,21 H3 V16 M3,13 V8 M3,5 V3" />
             </Button>

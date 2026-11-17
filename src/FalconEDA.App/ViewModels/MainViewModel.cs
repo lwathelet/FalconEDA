@@ -5,6 +5,8 @@ using System.IO;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
+using Avalonia.Threading;
+using FalconEDA.App.Services;
 using FalconEDA.Commands;
 using FalconEDA.Core;
 using FalconEDA.IO;
@@ -46,7 +48,42 @@ public partial class MainViewModel : ViewModelBase
     {
         Editor.Changed += OnEditorChanged;
         Editor.SaveRequested += OnSaveRequested;
+        Editor.LibraryProvider = Libraries;
+        Libraries.Progress += (done, total) =>
+        {
+            if (done % 25 == 0 || done == total)
+                Dispatcher.UIThread.Post(() =>
+                {
+                    if (Editor.Tool is null)
+                        Status = $"Reading libraries: {done}/{total}";
+                });
+        };
         RefreshSchematic();
+        IndexLibraries();
+    }
+
+    public AppSettings Settings { get; } = AppSettings.Load();
+
+    public LibraryCatalog Libraries { get; } = new();
+
+    public void SetLibraryFolders(List<string> folders)
+    {
+        Settings.LibraryFolders = folders;
+        Settings.Save();
+        IndexLibraries();
+    }
+
+    /// <summary>Reads the library folders in the background; the status bar shows progress.</summary>
+    private void IndexLibraries()
+    {
+        void Show(string text) => Dispatcher.UIThread.Post(() =>
+        {
+            if (Editor.Tool is null)
+                Status = text;
+        });
+
+        Libraries.BuildAsync(Settings.LibraryFolders).ContinueWith(_ =>
+            Show($"{Libraries.Index.Paths.Count} libraries, {Libraries.Index.Entries.Count} devices"));
     }
 
     public Editor Editor { get; } = new();

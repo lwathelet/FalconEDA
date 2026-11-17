@@ -7,6 +7,9 @@ public sealed class Schematic
 
     public List<Layer> Layers { get; } = new();
 
+    /// <summary>True when a part changed (its value, DNP, NO_BOM) without anything on a sheet changing.</summary>
+    public bool PartsModified { get; set; }
+
     /// <summary>Libraries by <see cref="Library.Key"/>.</summary>
     public Dictionary<string, Library> Libraries { get; } = new();
     public Dictionary<string, Part> Parts { get; } = new();
@@ -72,6 +75,62 @@ public sealed class Schematic
             return null;
         var pin = symbol.Pins.FirstOrDefault(p => p.Name == pinRef.Pin);
         return pin is null ? null : instance.Transform.Apply(pin.Position);
+    }
+
+    /// <summary>
+    /// Adds a new part using <paramref name="deviceSet"/> from a library file. Only the device set and its
+    /// symbols are copied into the schematic's library of that name, as Eagle does; if the schematic already has
+    /// that device set, its own version is used. Layers the library defines and the schematic lacks are added.
+    /// </summary>
+    public Part AddPart(Library from, DeviceSet deviceSet, string device, string technology, string? name = null)
+    {
+        var key = Library.Key(from.Name, from.Urn);
+        if (!Libraries.TryGetValue(key, out var library))
+        {
+            library = new Library { Name = from.Name, Urn = from.Urn };
+            Libraries[key] = library;
+        }
+        if (!library.DeviceSets.ContainsKey(deviceSet.Name))
+        {
+            library.DeviceSets[deviceSet.Name] = deviceSet;
+            foreach (var gate in deviceSet.Gates.Values)
+            {
+                if (!library.Symbols.ContainsKey(gate.Symbol) && from.Symbols.TryGetValue(gate.Symbol, out var symbol))
+                    library.Symbols[symbol.Name] = symbol;
+            }
+        }
+
+        foreach (var layer in from.Layers.Where(l => Layers.All(o => o.Number != l.Number)))
+        {
+            // Modules, Pins, Guide and SpiceOrder are hidden in schematics, whatever the library file says.
+            var copy = new Layer { Number = layer.Number, Name = layer.Name, Color = layer.Color, Visible = layer.Visible && layer.Number is not (90 or 93 or 98 or 99) };
+            var index = Layers.FindIndex(o => o.Number > layer.Number);
+            Layers.Insert(index < 0 ? Layers.Count : index, copy);
+        }
+
+        if (name is not null && Parts.ContainsKey(name))
+            throw new ArgumentException($"There is already a part called {name}.", nameof(name));
+        var part = new Part
+        {
+            Name = name ?? NextPartName(library.DeviceSets[deviceSet.Name].Prefix),
+            LibraryKey = key,
+            DeviceSet = deviceSet.Name,
+            Device = device,
+            Technology = technology,
+        };
+        Parts[part.Name] = part;
+        return part;
+    }
+
+    /// <summary>The first free name with this prefix: R1, R2... Without a prefix, U$1, U$2...</summary>
+    public string NextPartName(string prefix)
+    {
+        if (prefix.Length == 0)
+            prefix = "U$";
+        var i = 1;
+        while (Parts.ContainsKey($"{prefix}{i}"))
+            i++;
+        return $"{prefix}{i}";
     }
 
     /// <summary>The part value shown on the sheet; without a user value Eagle shows the device name.</summary>

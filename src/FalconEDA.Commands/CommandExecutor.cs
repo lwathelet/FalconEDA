@@ -10,19 +10,23 @@ public static partial class CommandExecutor
 {
     private static readonly Dictionary<string, Func<Editor, Command, string>> Handlers = new()
     {
+        ["ADD"] = Add,
         ["COPY"] = Copy,
         ["CUT"] = Cut,
         ["DELETE"] = Delete,
+        ["DNP"] = Dnp,
         ["EDIT"] = Edit,
         ["GRID"] = Grid,
         ["GROUP"] = Group,
         ["MIRROR"] = Mirror,
         ["MOVE"] = Move,
         ["NET"] = Net,
+        ["NO_BOM"] = NoBom,
         ["PASTE"] = Paste,
         ["REDO"] = Redo,
         ["ROTATE"] = Rotate,
         ["UNDO"] = Undo,
+        ["VALUE"] = Value,
         ["WINDOW"] = Window,
         ["WIRE"] = Wire,
         ["WRITE"] = Write,

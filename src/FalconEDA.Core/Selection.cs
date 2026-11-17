@@ -106,6 +106,34 @@ public static class Symbols
             yield return Line(p.Position, p.Position + Point.Direction(p.Rotation.Angle) * p.LengthMm, 94);
     }
 
+    /// <summary>
+    /// The attributes a newly placed part gets, as Eagle 9 places every part "smashed": one per text variable
+    /// in the symbol (&gt;NAME, &gt;VALUE, &gt;VAL...), at the text's place on the sheet. Eagle shows a part's
+    /// name and value from these, so a part without them would show neither.
+    /// </summary>
+    public static IEnumerable<PlacedAttribute> SmashedAttributes(Symbol symbol, Transform transform)
+    {
+        foreach (var text in symbol.Graphics.Texts.Where(t => t.Value.StartsWith('>') && t.Value.Length > 1)
+                     .DistinctBy(t => t.Value.ToUpperInvariant()))
+        {
+            var rotation = text.Rotation;
+            for (var i = 0; i < (int)Math.Round(transform.Rotation.Angle / 90) % 4; i++)
+                rotation = rotation.Rotated90();
+            if (transform.Rotation.Mirror)
+                rotation = rotation.Mirrored();
+
+            yield return new PlacedAttribute
+            {
+                Name = text.Value[1..].ToUpperInvariant(),
+                Position = transform.Apply(text.Position),
+                Size = text.Size,
+                Layer = text.Layer,
+                Rotation = rotation,
+                Align = text.Align,
+            };
+        }
+    }
+
     /// <summary>The area covered by a placed symbol, without its texts.</summary>
     public static Rect? Bounds(Symbol symbol, Transform transform)
     {

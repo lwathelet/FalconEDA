@@ -50,6 +50,9 @@ public sealed class Library
     /// <summary>What this library was read from (the file reader's XML), so it can be written back unchanged.</summary>
     public object? Source { get; set; }
 
+    /// <summary>The layers defined in the library file, so a schematic using its symbols can define them too.</summary>
+    public List<Layer> Layers { get; } = new();
+
     /// <summary>Libraries in a schematic are identified by name and URN together.</summary>
     public static string Key(string name, string urn) => urn.Length == 0 ? name : $"{name}|{urn}";
 }

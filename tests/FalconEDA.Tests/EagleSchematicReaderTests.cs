@@ -144,4 +144,13 @@ public class EagleSchematicReaderTests
         var ex = Assert.Throws<InvalidDataException>(() => EagleSchematicReader.Read(binary));
         Assert.Contains("EAGLE 5", ex.Message);
     }
+
+    [Fact]
+    public void An_attribute_the_part_does_not_have_shows_nothing()
+    {
+        var xml = Sample.Replace("<technology name=\"10K_\"><attribute name=\"VAL\" value=\"10k 1%\"/></technology>", "<technology name=\"10K_\"></technology>");
+        var view = SheetView.Build(EagleSchematicReader.Read(new MemoryStream(Encoding.UTF8.GetBytes(xml))), 0);
+
+        Assert.DoesNotContain(view.Texts, t => t.Value.StartsWith('>'));
+    }
 }

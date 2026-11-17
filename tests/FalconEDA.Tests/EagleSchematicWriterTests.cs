@@ -147,4 +147,82 @@ public sealed class EagleSchematicWriterTests : IDisposable
 
         Assert.Equal(File.ReadAllBytes(first), File.ReadAllBytes(second));
     }
+
+    [Fact]
+    public void Saving_an_eagle_file_without_changes_gives_exactly_the_same_bytes()
+    {
+        // Keeps version control diffs to what was really changed.
+        foreach (var file in ExampleFiles())
+        {
+            var path = Path.Combine(_folder, "same.sch");
+            EagleSchematicWriter.Save(EagleSchematicReader.Read(file), path);
+
+            Assert.True(File.ReadAllBytes(file).AsSpan().SequenceEqual(File.ReadAllBytes(path)), Path.GetFileName(file));
+        }
+    }
+
+    /// <summary>Lines between the first and last difference, counted in both files: right for one local change.</summary>
+    private static int ChangedLines(string a, string b)
+    {
+        var before = File.ReadAllLines(a);
+        var after = File.ReadAllLines(b);
+        var prefix = 0;
+        while (prefix < Math.Min(before.Length, after.Length) && before[prefix] == after[prefix])
+            prefix++;
+        var suffix = 0;
+        while (suffix < Math.Min(before.Length, after.Length) - prefix && before[^(suffix + 1)] == after[^(suffix + 1)])
+            suffix++;
+        return before.Length - prefix - suffix + (after.Length - prefix - suffix);
+    }
+
+    [Fact]
+    public void Moving_a_part_and_back_gives_the_original_file()
+    {
+        foreach (var file in ExampleFiles())
+        {
+            var editor = new Editor();
+            editor.Load(EagleSchematicReader.Read(file), file);
+            var part = editor.Sheet.Instances.FirstOrDefault(i => editor.Schematic.Resolve(i) is not null);
+            if (part is null)
+                continue;
+            var (x, y) = (part.Position.X, part.Position.Y);
+            string F(double v) => v.ToString(System.Globalization.CultureInfo.InvariantCulture);
+
+            var wires = editor.Sheet.AllWires().Count();
+            foreach (var command in CommandParser.Parse($"GRID MM 0.01; MOVE {part.Part} ({F(x + 5.08)} {F(y)})"))
+                CommandExecutor.Execute(editor, command);
+
+            // A wire that shrank to nothing on the way is removed (as Eagle's optimizing does), so going back
+            // cannot restore it; this only holds when no wire disappeared.
+            if (editor.Sheet.AllWires().Count() < wires)
+                continue;
+            var path = Path.Combine(_folder, "moved.sch");
+            EagleSchematicWriter.Save(editor.Schematic, path);
+
+            foreach (var command in CommandParser.Parse($"MOVE {part.Part} ({F(x)} {F(y)})"))
+                CommandExecutor.Execute(editor, command);
+            EagleSchematicWriter.Save(editor.Schematic, path);
+
+            Assert.True(File.ReadAllBytes(file).AsSpan().SequenceEqual(File.ReadAllBytes(path)), Path.GetFileName(file));
+        }
+    }
+
+    [Fact]
+    public void Changing_a_value_changes_only_that_part_in_the_file()
+    {
+        var file = ExampleFiles().FirstOrDefault(f => f.EndsWith("Arduino_MEGA2560_ref.sch"));
+        if (file is null)
+            return;
+        var editor = new Editor();
+        editor.Load(EagleSchematicReader.Read(file), file);
+        var part = editor.Schematic.Parts.Values.First(p => p.Name == "R1");
+
+        foreach (var command in CommandParser.Parse("VALUE R1 4K7; DNP R1;"))
+            CommandExecutor.Execute(editor, command);
+        var path = Path.Combine(_folder, "value.sch");
+        EagleSchematicWriter.Save(editor.Schematic, path);
+
+        // The part's line, plus its DNP attribute and closing tag.
+        Assert.True(ChangedLines(file, path) <= 4, $"{ChangedLines(file, path)} lines changed");
+    }
 }

@@ -26,25 +26,13 @@ public static class EagleSchematicReader
             throw new InvalidDataException(
                 "This file uses the binary format of EAGLE 5 or earlier. Open it in EAGLE 6 or later and save it to convert it to XML.");
 
-        // Eagle files declare <!DOCTYPE eagle SYSTEM "eagle.dtd">; the DTD file is not needed to read them.
-        var settings = new XmlReaderSettings { DtdProcessing = DtdProcessing.Ignore, XmlResolver = null };
-        using var reader = XmlReader.Create(stream, settings);
-        var document = XDocument.Load(reader);
+        var document = LoadXml(stream);
 
         var drawing = document.Root?.Element("drawing") ?? throw new InvalidDataException("Not an Eagle file: no <drawing> element.");
         var schematicElement = drawing.Element("schematic") ?? throw new InvalidDataException("Not an Eagle schematic: no <schematic> element.");
 
         var schematic = new Schematic();
-        foreach (var layer in drawing.Element("layers")?.Elements("layer") ?? [])
-        {
-            schematic.Layers.Add(new Layer
-            {
-                Number = Int(layer, "number"),
-                Name = Str(layer, "name"),
-                Color = Int(layer, "color", 7),
-                Visible = Bool(layer, "visible", true),
-            });
-        }
+        schematic.Layers.AddRange(ReadLayers(drawing));
         if (schematic.Layers.Count == 0)
             schematic.Layers.AddRange(Schematic.DefaultLayers());
 
@@ -86,7 +74,18 @@ public static class EagleSchematicReader
     }
 
     /// <summary>XML files start with '&lt;' (possibly after a byte order mark or whitespace); old binary files do not.</summary>
-    private static bool IsBinaryFormat(Stream stream)
+    internal static IEnumerable<Layer> ReadLayers(XElement drawing) =>
+        (drawing.Element("layers")?.Elements("layer") ?? []).Select(layer => new Layer
+        {
+            Number = Int(layer, "number"),
+            Name = Str(layer, "name"),
+            Color = Int(layer, "color", 7),
+            Visible = Bool(layer, "visible", true),
+        });
+
+    internal static XDocument LoadXml(Stream stream) => EagleXml.Load(stream);
+
+    internal static bool IsBinaryFormat(Stream stream)
     {
         if (!stream.CanSeek)
             return false;
@@ -100,9 +99,10 @@ public static class EagleSchematicReader
         return text.Length > 0 && text[0] != '<';
     }
 
-    private static Library ReadLibrary(XElement element)
+    /// <summary>Reads a library element; <paramref name="name"/> is used for library files, whose element has no name.</summary>
+    internal static Library ReadLibrary(XElement element, string? name = null)
     {
-        var library = new Library { Name = Str(element, "name"), Urn = Str(element, "urn"), Source = element };
+        var library = new Library { Name = name ?? Str(element, "name"), Urn = Str(element, "urn"), Source = element };
 
         foreach (var s in element.Element("symbols")?.Elements("symbol") ?? [])
         {
@@ -188,7 +188,7 @@ public static class EagleSchematicReader
             sheet.Busses.Add(ReadNet(b));
     }
 
-    private static Net ReadNet(XElement element)
+    internal static Net ReadNet(XElement element)
     {
         var net = new Net { Name = Str(element, "name"), Class = Int(element, "class") };
         foreach (var segment in element.Elements("segment"))
@@ -206,6 +206,7 @@ public static class EagleSchematicReader
                     Rotation = Rotation.Parse((string?)label.Attribute("rot")),
                     Align = Align.Parse((string?)label.Attribute("align")),
                     Xref = Bool(label, "xref", false),
+                    Source = label,
                 });
             }
         }
@@ -270,7 +271,7 @@ public static class EagleSchematicReader
         }
     }
 
-    private static Wire ReadWire(XElement w) => new()
+    internal static Wire ReadWire(XElement w) => new()
     {
         From = Pt(w, "x1", "y1"),
         To = Pt(w, "x2", "y2"),
@@ -279,6 +280,7 @@ public static class EagleSchematicReader
         Curve = Dbl(w, "curve"),
         Style = Str(w, "style", "continuous"),
         Cap = Str(w, "cap", "round"),
+        Source = w,
     };
 
     private static Pin ReadPin(XElement p) => new()

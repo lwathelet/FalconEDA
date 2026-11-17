@@ -55,6 +55,9 @@ public sealed class Wire
     /// <summary>End cap of an arc: round or flat.</summary>
     public string Cap { get; init; } = "round";
 
+    /// <summary>What this wire was read from (the file reader's XML), so a moved wire can be updated in place.</summary>
+    public object? Source { get; set; }
+
     public double DistanceTo(Point p) => GeometryMath.DistanceToSegment(p, From, To);
 
     public Wire Clone() => (Wire)MemberwiseClone();

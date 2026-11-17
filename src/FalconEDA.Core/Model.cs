@@ -14,7 +14,36 @@ public sealed class Part
     public Dictionary<string, string> Attributes { get; } = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>A copy under another name, e.g. when pasting a part whose name is already taken.</summary>
-    public Part Renamed(string name)
+    public Part Renamed(string name) => Copy(name, Technology, Value);
+
+    /// <summary>
+    /// A copy with another value from the component's list. Its VAL, MNF and REF then come from the chosen
+    /// technology, so attributes the part itself had for them are dropped.
+    /// </summary>
+    public Part WithValue(ValueOption value)
+    {
+        var copy = Copy(Name, value.Technology, value.Val);
+        foreach (var name in new[] { Values.Val, Values.Mnf, Values.Ref })
+            copy.Attributes.Remove(name);
+        return copy;
+    }
+
+    /// <summary>A copy with a value typed in, for parts without a list of values (as Eagle's VALUE).</summary>
+    public Part WithValue(string value) => Copy(Name, Technology, value);
+
+    /// <summary>A copy with an attribute set, or removed when <paramref name="value"/> is null.</summary>
+    public Part WithAttribute(string name, string? value)
+    {
+        var copy = Copy(Name, Technology, Value);
+        if (value is null)
+            copy.Attributes.Remove(name);
+        else
+            copy.Attributes[name] = value;
+        return copy;
+    }
+
+    // Parts are replaced rather than changed, so UNDO, which keeps the old part objects, restores them.
+    private Part Copy(string name, string technology, string? value)
     {
         var copy = new Part
         {
@@ -22,12 +51,12 @@ public sealed class Part
             LibraryKey = LibraryKey,
             DeviceSet = DeviceSet,
             Device = Device,
-            Technology = Technology,
-            Value = Value,
+            Technology = technology,
+            Value = value,
             Source = Source,
         };
-        foreach (var (key, value) in Attributes)
-            copy.Attributes[key] = value;
+        foreach (var (key, attribute) in Attributes)
+            copy.Attributes[key] = attribute;
         return copy;
     }
 }
@@ -79,6 +108,9 @@ public sealed class Label
     public Rotation Rotation { get; set; }
     public Align Align { get; init; } = Align.BottomLeft;
     public bool Xref { get; init; }
+
+    /// <summary>What this label was read from (the file reader's XML), so a moved label can be updated in place.</summary>
+    public object? Source { get; set; }
 
     public Label Clone() => (Label)MemberwiseClone();
 }

@@ -152,15 +152,21 @@ public sealed partial class Sheet
             label.Rotation = rotate(label.Rotation);
         }
 
+        // Only wires of a net the pin is connected to follow it; another net's wire that merely ends there stays.
         var pinsAfter = PinsOf(selection.Instances);
-        foreach (var wire in Nets.SelectMany(n => n.Wires))
+        foreach (var net in Nets)
         {
+            var netPins = pinsBefore.Where(p => net.PinRefs.Contains(p.Key)).ToList();
+            if (netPins.Count == 0)
+                continue;
+            foreach (var wire in net.Wires)
+            {
             foreach (var end in new[] { false, true })
             {
                 if (selection.WireEnds.Contains((wire, end)))
                     continue;
                 var point = end ? wire.To : wire.From;
-                foreach (var (pin, before) in pinsBefore)
+                foreach (var (pin, before) in netPins)
                 {
                     if (!GeometryMath.SamePoint(point, before) || !pinsAfter.TryGetValue(pin, out var after))
                         continue;
@@ -171,6 +177,7 @@ public sealed partial class Sheet
                     movedCorners.Add((before, after));
                     break;
                 }
+            }
             }
         }
 
@@ -185,15 +192,20 @@ public sealed partial class Sheet
             net.Wires.Add(new Wire { From = before, To = after, Width = DefaultNetWidth, Layer = NetLayer });
         }
 
-        // Junction dots stored in the file move with the corner they sit on.
+        // Junction dots stored in the file move with the corner they sit on, unless wires still meet where it was.
         foreach (var net in Nets)
         {
             for (var i = 0; i < net.Junctions.Count; i++)
             {
-                var corner = movedCorners.FirstOrDefault(c => GeometryMath.SamePoint(c.Before, net.Junctions[i]));
-                if (corner != default)
+                var junction = net.Junctions[i];
+                var corner = movedCorners.FirstOrDefault(c => GeometryMath.SamePoint(c.Before, junction));
+                if (corner != default
+                    && !net.Wires.Any(w => GeometryMath.SamePoint(w.From, junction) || GeometryMath.SamePoint(w.To, junction)))
                     net.Junctions[i] = corner.After;
             }
+
+            // A wire shrunk to nothing (a part moved back onto the pin it came from) is gone.
+            net.Wires.RemoveAll(w => GeometryMath.SamePoint(w.From, w.To));
         }
 
         Modified = true;
@@ -213,10 +225,11 @@ public sealed partial class Sheet
     }
 
     /// <summary>
-    /// Brings pin connections up to date after objects moved: a pin no wire touches any more is
-    /// disconnected, and a free pin at the end of a net wire is connected to that net.
+    /// Brings pin connections up to date: a pin no wire touches any more is disconnected. When placing parts
+    /// (ADD, PASTE), a free pin at the end of a net wire is also connected to that net; moving, rotating and
+    /// mirroring do not make new connections, as in Eagle.
     /// </summary>
-    public void RefreshPins()
+    public void RefreshPins(bool connectFreePins = false)
     {
         var pins = Pins().ToList();
         var position = pins.ToDictionary(p => p.Pin, p => p.Position);
@@ -229,6 +242,9 @@ public sealed partial class Sheet
             net.PinRefs.Clear();
             net.PinRefs.AddRange(kept);
         }
+
+        if (!connectFreePins)
+            return;
 
         var connected = Nets.SelectMany(n => n.PinRefs).ToHashSet();
         foreach (var (pin, p) in pins.Where(x => !connected.Contains(x.Pin)))
@@ -346,6 +362,8 @@ public sealed partial class Sheet
             }
             foreach (var wire in original.Wires.Select(w => w.Clone()))
             {
+                // A copy is a new wire: it has no XML of its own yet.
+                wire.Source = null;
                 wire.From += delta;
                 wire.To += delta;
                 net.Wires.Add(wire);
@@ -353,6 +371,7 @@ public sealed partial class Sheet
             }
             foreach (var label in original.Labels.Select(l => l.Clone()))
             {
+                label.Source = null;
                 label.Position += delta;
                 net.Labels.Add(label);
                 pasted.Labels.Add(label);
@@ -362,13 +381,14 @@ public sealed partial class Sheet
 
         foreach (var wire in content.Wires.Select(w => w.Clone()))
         {
+            wire.Source = null;
             wire.From += delta;
             wire.To += delta;
             Wires.Add(wire);
             pasted.AddWhole(wire);
         }
 
-        RefreshPins();
+        RefreshPins(connectFreePins: true);
         Modified = true;
         return pasted;
     }
@@ -398,12 +418,6 @@ public sealed partial class Sheet
             && library.DeviceSets.TryGetValue(part.DeviceSet, out var deviceSet) && deviceSet.Prefix.Length > 0
             ? deviceSet.Prefix
             : Regex.Match(part.Name, @"^\D*").Value;
-        if (prefix.Length == 0)
-            prefix = part.Name + "_";
-
-        var i = 1;
-        while (_owner.Parts.ContainsKey($"{prefix}{i}"))
-            i++;
-        return $"{prefix}{i}";
+        return _owner.NextPartName(prefix.Length > 0 ? prefix : part.Name + "_");
     }
 }
