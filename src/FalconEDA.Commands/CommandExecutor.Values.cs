@@ -2,7 +2,7 @@ using FalconEDA.Core;
 
 namespace FalconEDA.Commands;
 
-/// <summary>VALUE, DNP and NO_BOM: a component's list of values and the part flags (docs/design-decisions.md).</summary>
+/// <summary>VALUE and CHANGE: a component's list of values and the part properties BOM and DNP (docs/design-decisions.md).</summary>
 public static partial class CommandExecutor
 {
     /// <summary>
@@ -98,60 +98,60 @@ public static partial class CommandExecutor
         return option;
     }
 
-    /// <summary>DNP R1 switches "do not populate" for R1 (DNP R1 ON / OFF sets it); DNP alone: click the parts.</summary>
-    private static string Dnp(Editor editor, Command command) => Flag(editor, command, Values.Dnp);
-
-    /// <summary>NO_BOM R1 leaves R1 out of the bill of materials, or puts it back; NO_BOM alone: click the parts.</summary>
-    private static string NoBom(Editor editor, Command command) => Flag(editor, command, Values.NoBom);
-
-    private static string Flag(Editor editor, Command command, string flag)
+    /// <summary>
+    /// CHANGE sets a part property, as Eagle's CHANGE: CHANGE BOM OFF leaves parts out of the bill of materials
+    /// (BOM is on by default), CHANGE BOM ON puts them back; CHANGE DNP ON / OFF marks "do not populate".
+    /// It applies to the parts named after it (CHANGE BOM OFF R1 R2), else to the group, else to the parts clicked.
+    /// MNF and REF are not properties: they belong to the value chosen from the library list (VALUE).
+    /// </summary>
+    private static string ChangeCommand(Editor editor, Command command)
     {
-        var groupParts = editor.Selection.Instances.Select(i => i.Part).Distinct().ToList();
-        if (command.Arguments.Count == 0 && groupParts.Count == 0)
+        if (command.Arguments is not [WordArgument { Value: var property }, WordArgument { Value: var value }, ..])
+            throw new CommandException("CHANGE: use CHANGE BOM ON|OFF or CHANGE DNP ON|OFF.");
+
+        var isBom = property.ToUpperInvariant() switch
         {
-            return StartTool(editor, new PartClickTool(editor, $"{flag}: left-click a part to switch it on or off. Esc ends.",
-                instance => SetFlag(editor, editor.Schematic.Parts[instance.Part], flag, null)));
+            "BOM" => true,
+            "DNP" => false,
+            _ => throw new CommandException($"CHANGE: unknown property {property}; FalconEDA has BOM and DNP."),
+        };
+        var on = value.ToUpperInvariant() switch
+        {
+            "ON" => true,
+            "OFF" => false,
+            _ => throw new CommandException($"CHANGE {property.ToUpperInvariant()}: use ON or OFF."),
+        };
+
+        // BOM is kept the other way round: a part out of the BOM carries NO_BOM.
+        var attribute = isBom ? Values.NoBom : Values.Dnp;
+        string? stored = on != isBom ? "yes" : null;
+        var shown = $"{property.ToUpperInvariant()} {value.ToUpperInvariant()}";
+
+        void Apply(IEnumerable<Part> parts)
+        {
+            editor.Checkpoint();
+            foreach (var part in parts)
+                editor.Schematic.Parts[part.Name] = part.WithAttribute(attribute, stored);
+            editor.Schematic.PartsModified = true;
+            editor.NotifyChanged();
         }
 
-        bool? state = null;
-        var names = new List<string>();
-        foreach (var argument in command.Arguments)
-        {
-            switch (argument)
-            {
-                case WordArgument { Value: var onWord } when onWord.Equals("ON", StringComparison.OrdinalIgnoreCase):
-                    state = true;
-                    break;
-                case WordArgument { Value: var offWord } when offWord.Equals("OFF", StringComparison.OrdinalIgnoreCase):
-                    state = false;
-                    break;
-                case WordArgument w:
-                    names.Add(w.Value);
-                    break;
-                default:
-                    throw Unexpected(flag, argument);
-            }
-        }
+        var names = command.Arguments.Skip(2).Select(a => a is WordArgument w ? w.Value : throw Unexpected("CHANGE", a)).ToList();
         if (names.Count > 0)
-            return string.Join(", ", names.Select(n => SetFlag(editor, FindPart(editor, n), flag, state)));
+        {
+            Apply(names.Select(name => FindPart(editor, name)).ToList());
+            return $"{shown}: {string.Join(", ", names)}";
+        }
 
-        // No names: the parts of the group. Switching turns them all on, or all off if they all have it already.
-        var parts = groupParts.Select(n => editor.Schematic.Parts[n]).ToList();
-        var on = state ?? !parts.All(p => p.Attributes.TryGetValue(flag, out var v) && v.Equals("yes", StringComparison.OrdinalIgnoreCase));
-        editor.Checkpoint();
-        foreach (var part in parts)
-            editor.Schematic.Parts[part.Name] = part.WithAttribute(flag, on ? "yes" : null);
-        editor.Schematic.PartsModified = true;
-        editor.NotifyChanged();
-        return $"{flag} {(on ? "on" : "off")} for {parts.Count} part(s)";
-    }
+        var groupParts = editor.Selection.Instances.Select(i => i.Part).Distinct().ToList();
+        if (groupParts.Count > 0)
+        {
+            Apply(groupParts.Select(n => editor.Schematic.Parts[n]).ToList());
+            return $"{shown} for {groupParts.Count} part(s)";
+        }
 
-    /// <summary>Sets or clears a flag on a part; with <paramref name="state"/> null it switches it.</summary>
-    private static string SetFlag(Editor editor, Part part, string flag, bool? state)
-    {
-        var on = state ?? !(part.Attributes.TryGetValue(flag, out var value) && value.Equals("yes", StringComparison.OrdinalIgnoreCase));
-        Change(editor, part.WithAttribute(flag, on ? "yes" : null));
-        return $"{part.Name}: {flag} {(on ? "on" : "off")}";
+        return StartTool(editor, new PartClickTool(editor, $"CHANGE {shown}: left-click the parts. Esc ends.",
+            instance => Apply([editor.Schematic.Parts[instance.Part]])));
     }
 
     private static void Change(Editor editor, Part changed)
@@ -171,7 +171,7 @@ public static partial class CommandExecutor
         schematic.Libraries.GetValueOrDefault(part.LibraryKey)?.DeviceSets.GetValueOrDefault(part.DeviceSet)?.Devices.GetValueOrDefault(part.Device);
 }
 
-/// <summary>A tool that does something with each part clicked: VALUE, DNP, NO_BOM.</summary>
+/// <summary>A tool that does something with each part clicked: VALUE, CHANGE.</summary>
 public sealed class PartClickTool(Editor editor, string prompt, Action<Instance> onClick) : ITool
 {
     public string Prompt => prompt;

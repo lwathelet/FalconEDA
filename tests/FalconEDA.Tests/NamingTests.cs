@@ -152,4 +152,84 @@ public class NamingTests
             File.Delete(path);
         }
     }
+
+    /// <summary>What NAME asks when the net at <paramref name="p"/> is clicked.</summary>
+    private RenameRequest ClickName(Point p)
+    {
+        RenameRequest? asked = null;
+        _editor.RenameRequested += r => asked = r;
+        Run("NAME;");
+        _editor.Tool!.Click(p, 0.5, 1);
+        _editor.SetTool(null);
+        return asked!;
+    }
+
+    [Fact]
+    public void Name_does_not_ask_for_a_net_in_one_piece_on_one_sheet()
+    {
+        var request = ClickName(new Point(50.8, 35));
+
+        Assert.True(request.IsNet);
+        Assert.Equal("VCC", request.Name);
+        Assert.Empty(request.Scopes);
+    }
+
+    [Fact]
+    public void Name_offers_the_piece_or_the_sheet_for_a_net_in_several_pieces()
+    {
+        Run("NET VCC (0 0) (10 0);");
+
+        Assert.Equal(new[] { NameScope.Piece, NameScope.Sheet }, ClickName(new Point(5, 0)).Scopes);
+    }
+
+    [Fact]
+    public void Name_offers_this_sheet_or_all_sheets_for_a_net_on_several_sheets()
+    {
+        _editor.Schematic.AddSheet().AddNet(new[] { new Point(0, 0), new Point(10, 0) }, name: "VCC");
+
+        Assert.Equal(new[] { NameScope.Sheet, NameScope.AllSheets }, ClickName(new Point(50.8, 35)).Scopes);
+    }
+
+    [Fact]
+    public void Renaming_one_piece_leaves_the_rest_of_the_net()
+    {
+        Run("NET VCC (0 0) (10 0); NAME (5 0) VDD;");
+
+        var vdd = Net("VDD");
+        Assert.Single(vdd.Wires);
+        Assert.Empty(vdd.PinRefs);
+        var vcc = Net("VCC");
+        Assert.Contains(new PinRef("R1", "G$1", "2"), vcc.PinRefs);
+        Assert.Single(vcc.Labels);
+    }
+
+    [Fact]
+    public void Renaming_on_this_sheet_leaves_other_sheets()
+    {
+        var other = _editor.Schematic.AddSheet();
+        other.AddNet(new[] { new Point(0, 0), new Point(10, 0) }, name: "VCC");
+
+        Run("NAME VCC VDD SHEET;");
+
+        Assert.Equal("VDD", Assert.Single(_editor.Sheet.Nets).Name);
+        Assert.Equal("VCC", Assert.Single(other.Nets).Name);
+    }
+
+    [Fact]
+    public void A_renamed_piece_is_saved()
+    {
+        Run("NET VCC (0 0) (10 0); NAME (5 0) VDD;");
+        var path = Path.Combine(Path.GetTempPath(), $"falconeda-piece-{Guid.NewGuid():N}.sch");
+        try
+        {
+            EagleSchematicWriter.Save(_editor.Schematic, path);
+            var nets = EagleSchematicReader.Read(path).Sheets[0].Nets;
+            Assert.Equal(new[] { "VCC", "VDD" }, nets.Select(n => n.Name).Order());
+            Assert.Contains(new PinRef("R1", "G$1", "2"), nets.Single(n => n.Name == "VCC").PinRefs);
+        }
+        finally
+        {
+            File.Delete(path);
+        }
+    }
 }

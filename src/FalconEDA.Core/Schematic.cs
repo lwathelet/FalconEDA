@@ -7,7 +7,7 @@ public sealed partial class Schematic
 
     public List<Layer> Layers { get; } = new();
 
-    /// <summary>True when a part changed (its value, DNP, NO_BOM) without anything on a sheet changing.</summary>
+    /// <summary>True when a part changed (its value, DNP, BOM) without anything on a sheet changing.</summary>
     public bool PartsModified { get; set; }
 
     /// <summary>Libraries by <see cref="Library.Key"/>.</summary>

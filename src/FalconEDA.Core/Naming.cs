@@ -39,15 +39,15 @@ public sealed partial class Schematic
     }
 
     /// <summary>
-    /// Renames a net on every sheet. Nets of the same name are one signal, so if <paramref name="newName"/> is
-    /// already used, the two become one net; on a sheet where both exist they are merged.
+    /// Renames a net on every sheet, or only on <paramref name="only"/>. Nets of the same name are one signal, so if
+    /// <paramref name="newName"/> is already used, the two become one net; on a sheet where both exist they are merged.
     /// </summary>
-    public void RenameNet(string oldName, string newName)
+    public void RenameNet(string oldName, string newName, Sheet? only = null)
     {
-        if (!Sheets.Any(s => s.Nets.Any(n => n.Name == oldName)))
+        if (!Sheets.Any(s => (only is null || s == only) && s.Nets.Any(n => n.Name == oldName)))
             throw new ArgumentException($"There is no net {oldName}.", nameof(oldName));
 
-        foreach (var sheet in Sheets)
+        foreach (var sheet in Sheets.Where(s => only is null || s == only))
         {
             if (sheet.Nets.FirstOrDefault(n => n.Name == oldName) is not { } net)
                 continue;
@@ -69,11 +69,67 @@ public sealed partial class Schematic
 
     /// <summary>Whether a net of this name exists on any sheet.</summary>
     public bool HasNet(string name) => Sheets.Any(s => s.Nets.Any(n => n.Name == name));
+
+    /// <summary>
+    /// Renames one connected piece of a net: its wires, the pins and junctions on it and the labels next to it
+    /// get the new name; the rest of the net keeps the old one. A piece that is the whole net on its sheet is
+    /// renamed on that sheet.
+    /// </summary>
+    public void RenameNetPiece(Sheet sheet, Net net, IReadOnlyCollection<Wire> piece, string newName)
+    {
+        if (piece.Count == net.Wires.Count)
+        {
+            RenameNet(net.Name, newName, sheet);
+            return;
+        }
+
+        var target = sheet.Nets.FirstOrDefault(n => n.Name == newName);
+        if (target is null)
+        {
+            target = new Net { Name = newName, Class = net.Class };
+            sheet.Nets.Add(target);
+        }
+
+        var rest = net.Wires.Except(piece).ToList();
+        bool OnPiece(Point p) => piece.Any(w => w.DistanceTo(p) < GeometryMath.Epsilon);
+
+        net.Wires.RemoveAll(piece.Contains);
+        target.Wires.AddRange(piece);
+        foreach (var label in net.Labels.Where(l => piece.Min(w => w.DistanceTo(l.Position)) < rest.Min(w => w.DistanceTo(l.Position))).ToList())
+        {
+            net.Labels.Remove(label);
+            target.Labels.Add(label);
+        }
+        foreach (var junction in net.Junctions.Where(OnPiece).ToList())
+        {
+            net.Junctions.Remove(junction);
+            target.Junctions.Add(junction);
+        }
+        foreach (var pin in net.PinRefs.Where(p => PinPosition(sheet, p) is { } at && OnPiece(at)).ToList())
+        {
+            net.PinRefs.Remove(pin);
+            if (!target.PinRefs.Contains(pin))
+                target.PinRefs.Add(pin);
+        }
+        sheet.Modified = true;
+    }
 }
+
+/// <summary>What NAME can rename when a net is clicked: the piece, the net on the sheet, or the net on all sheets.</summary>
+public enum NameScope { Piece, Sheet, AllSheets }
 
 /// <summary>LABEL, JUNCTION and SMASH on a sheet.</summary>
 public sealed partial class Sheet
 {
+    /// <summary>The net at <paramref name="p"/> and the connected piece of it that was clicked.</summary>
+    public (Net Net, List<Wire> Piece)? NetPieceAt(Point p, double radius)
+    {
+        if (NetAt(p, radius) is not { } net)
+            return null;
+        var nearest = net.Wires.MinBy(w => w.DistanceTo(p))!;
+        return (net, Net.ConnectedGroups(net.Wires).First(g => g.Contains(nearest)));
+    }
+
     /// <summary>The net with a wire nearest to <paramref name="p"/>, within <paramref name="radius"/>.</summary>
     public Net? NetAt(Point p, double radius) => Nets
         .SelectMany(n => n.Wires.Select(w => (Net: n, Distance: w.DistanceTo(p))))

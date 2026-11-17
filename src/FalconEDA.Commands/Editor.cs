@@ -31,10 +31,10 @@ public sealed class Editor
     /// <summary>A message from a tool for the status bar (e.g. what SHOW found); taken by the app when shown.</summary>
     public string? Message { get; set; }
 
-    /// <summary>Raised by NAME for a part or net: the app asks for the new name.</summary>
-    public event Action<string>? RenameRequested;
+    /// <summary>Raised by NAME for a part or net: the app asks for the new name, and for a net what to rename.</summary>
+    public event Action<RenameRequest>? RenameRequested;
 
-    public void RequestRename(string name) => RenameRequested?.Invoke(name);
+    public void RequestRename(RenameRequest request) => RenameRequested?.Invoke(request);
 
     /// <summary>What COPY or CUT put on the clipboard for PASTE.</summary>
     public ClipboardContent? Clipboard { get; set; }

@@ -12,11 +12,11 @@ using FalconEDA.Core;
 namespace FalconEDA.App.Views;
 
 /// <summary>What was chosen in the value table.</summary>
-public sealed record ValueChoice(ValueOption? Picked, string? NewVal, string? NewMnf, string? NewRef, string? FreeValue, bool Dnp, bool NoBom);
+public sealed record ValueChoice(ValueOption? Picked, string? NewVal, string? NewMnf, string? NewRef, string? FreeValue, bool Dnp, bool InBom);
 
 /// <summary>
 /// The table of a component's values (VAL, MNF, REF) to pick from, a row to add a new value to the list,
-/// and the part's DNP and "not in BOM" flags. Without a list of values, a value can simply be typed in.
+/// and the part's DNP and BOM properties. Without a list of values, a value can simply be typed in.
 /// </summary>
 public sealed class ValueDialog : Window
 {
@@ -27,11 +27,11 @@ public sealed class ValueDialog : Window
     private readonly TextBox _newMnf = new() { PlaceholderText = "MNF (manufacturer and part number)" };
     private readonly TextBox _newRef = new() { PlaceholderText = "REF" };
     private readonly CheckBox _dnp = new() { Content = "DNP (do not populate)" };
-    private readonly CheckBox _noBom = new() { Content = "Not in the bill of materials (NO__BOM)" };
+    private readonly CheckBox _inBom = new() { Content = "In the bill of materials (BOM)" };
 
     /// <param name="showFlags">False when adding a part: the flags belong to a part that does not exist yet.</param>
     public ValueDialog(string title, IReadOnlyList<ValueOption> values, string? currentTechnology, string? currentValue,
-        bool dnp, bool noBom, bool showFlags)
+        bool dnp, bool inBom, bool showFlags)
     {
         _values = values;
         Title = title;
@@ -40,7 +40,7 @@ public sealed class ValueDialog : Window
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
 
         _dnp.IsChecked = dnp;
-        _noBom.IsChecked = noBom;
+        _inBom.IsChecked = inBom;
 
         _list.ItemTemplate = new FuncDataTemplate<ValueOption>((v, _) => Row(v?.Val ?? "", v?.Mnf ?? "", v?.Ref ?? "", FontWeight.Normal));
         _list.DoubleTapped += (_, _) => Choose();
@@ -82,7 +82,7 @@ public sealed class ValueDialog : Window
         {
             var flags = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 20, Margin = new Thickness(0, 10, 0, 0) };
             flags.Children.Add(_dnp);
-            flags.Children.Add(_noBom);
+            flags.Children.Add(_inBom);
             DockPanel.SetDock(flags, Dock.Bottom);
             root.Children.Add(flags);
         }
@@ -162,18 +162,18 @@ public sealed class ValueDialog : Window
     {
         var newVal = _newVal.Text?.Trim();
         var dnp = _dnp.IsChecked == true;
-        var noBom = _noBom.IsChecked == true;
+        var inBom = _inBom.IsChecked == true;
 
         if (_values.Count == 0)
         {
-            Close(new ValueChoice(null, null, null, null, string.IsNullOrEmpty(newVal) ? null : newVal, dnp, noBom));
+            Close(new ValueChoice(null, null, null, null, string.IsNullOrEmpty(newVal) ? null : newVal, dnp, inBom));
             return;
         }
         if (!string.IsNullOrEmpty(newVal))
         {
-            Close(new ValueChoice(null, newVal, _newMnf.Text?.Trim() ?? "", _newRef.Text?.Trim() ?? "", null, dnp, noBom));
+            Close(new ValueChoice(null, newVal, _newMnf.Text?.Trim() ?? "", _newRef.Text?.Trim() ?? "", null, dnp, inBom));
             return;
         }
-        Close(new ValueChoice(_list.SelectedItem as ValueOption, null, null, null, null, dnp, noBom));
+        Close(new ValueChoice(_list.SelectedItem as ValueOption, null, null, null, null, dnp, inBom));
     }
 }

@@ -176,33 +176,33 @@ public sealed class ValueTests : IDisposable
     [Fact]
     public void Dnp_shows_after_the_value_and_switches_off_again()
     {
-        Run("ADD R-EU_R0402@vals VALUE=100K (0 0); DNP R1;");
+        Run("ADD R-EU_R0402@vals VALUE=100K (0 0); CHANGE DNP ON R1;");
 
         Assert.True(Values.IsDnp(R1));
         Assert.Contains("100K DNP", Texts());
 
-        Run("DNP R1;");
+        Run("CHANGE DNP OFF R1;");
         Assert.False(Values.IsDnp(R1));
     }
 
     [Fact]
     public void Dnp_and_no_bom_act_on_the_group()
     {
-        Run("ADD R-EU_R0402@vals VALUE=100K (0 0); ADD R-EU_R0402@vals VALUE=10K (10 0); GROUP ALL; DNP;");
+        Run("ADD R-EU_R0402@vals VALUE=100K (0 0); ADD R-EU_R0402@vals VALUE=10K (10 0); GROUP ALL; CHANGE DNP ON;");
 
         Assert.All(_editor.Schematic.Parts.Values, p => Assert.True(Values.IsDnp(p)));
 
-        Run("DNP;");
+        Run("CHANGE DNP OFF;");
         Assert.All(_editor.Schematic.Parts.Values, p => Assert.False(Values.IsDnp(p)));
 
-        Run("NO_BOM ON;");
+        Run("CHANGE BOM OFF;");
         Assert.All(_editor.Schematic.Parts.Values, p => Assert.True(Values.IsNoBom(p)));
     }
 
     [Fact]
     public void Values_and_flags_are_saved()
     {
-        Run("ADD R-EU_R0402@vals (0 0); VALUE R1 47K 'Vishay' '000123'; DNP R1; NO_BOM R1;");
+        Run("ADD R-EU_R0402@vals (0 0); VALUE R1 47K 'Vishay' '000123'; CHANGE DNP ON R1; CHANGE BOM OFF R1;");
         var path = Path.Combine(_folder, "values.sch");
 
         EagleSchematicWriter.Save(_editor.Schematic, path);
@@ -215,5 +215,21 @@ public sealed class ValueTests : IDisposable
         Assert.True(Values.IsNoBom(part));
         Assert.Contains(Values.Of(CommandExecutor.DeviceOf(read, part)!), v => v.Val == "47K" && v.Ref == "000123");
         Assert.Contains("47K DNP", SheetView.Build(read, 0).Texts.Select(t => t.Value));
+    }
+
+    [Fact]
+    public void Change_bom_takes_a_part_out_of_the_bom_and_back()
+    {
+        Run("ADD R-EU_R0402@vals VALUE=100K (0 0);");
+        Assert.False(Values.IsNoBom(R1));
+
+        Run("CHANGE BOM OFF R1;");
+        Assert.True(Values.IsNoBom(R1));
+
+        Run("CHANGE BOM ON R1; CHANGE DNP ON R1;");
+        Assert.False(Values.IsNoBom(R1));
+        Assert.True(Values.IsDnp(R1));
+        Assert.Throws<CommandException>(() => Run("CHANGE COLOR RED R1;"));
+        Assert.Throws<CommandException>(() => Run("NO_BOM R1;"));
     }
 }

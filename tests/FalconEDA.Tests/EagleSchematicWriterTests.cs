@@ -217,7 +217,7 @@ public sealed class EagleSchematicWriterTests : IDisposable
         editor.Load(EagleSchematicReader.Read(file), file);
         var part = editor.Schematic.Parts.Values.First(p => p.Name == "R1");
 
-        foreach (var command in CommandParser.Parse("VALUE R1 4K7; DNP R1;"))
+        foreach (var command in CommandParser.Parse("VALUE R1 4K7; CHANGE DNP ON R1;"))
             CommandExecutor.Execute(editor, command);
         var path = Path.Combine(_folder, "value.sch");
         EagleSchematicWriter.Save(editor.Schematic, path);

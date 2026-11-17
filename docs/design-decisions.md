@@ -52,14 +52,29 @@ carries its manufacturer (`MNF`) and reference (`REF`) with it.
 - **A value that is not in the list yet** can be typed in (VAL, MNF, REF); FalconEDA adds it to the
   component's list in the library, so it can be chosen next time.
 
-## DNP and NO_BOM are flags on the part
+## BOM and DNP are part properties, set with CHANGE
 
-Two attributes on a part (not in the library), set or cleared per part:
+Two properties of a part (not of the library), set with Eagle's `CHANGE` command: on the parts named
+after it, else on the selected group, else on the parts clicked.
 
-- **`DNP`** (do not populate): the part keeps its value; the schematic shows `DNP` after the value
-  (for example `100K DNP`), and the bill of materials lists the part as DNP.
-- **`NO_BOM`**: the part is left out of the bill of materials.
+- **`BOM`** is on by default. `CHANGE BOM OFF` leaves a part out of the bill of materials,
+  `CHANGE BOM ON` puts it back.
+- **`DNP`** (do not populate) is off by default. `CHANGE DNP ON` keeps the part's value, shows `DNP`
+  after it on the schematic (for example `100K DNP`) and lists the part as DNP in the bill of materials.
 
-They are stored as part attributes with the value `yes` (`<attribute name="DNP" value="yes"/>`), which
-Eagle keeps and shows like any other attribute. This replaces the old way of choosing a `DNP_`
-technology, which lost the part's real value.
+In the file they are part attributes with the value `yes`: `NO_BOM` for a part out of the BOM, `DNP`
+for a part not populated. Eagle keeps them like any other attribute. This replaces the old way of
+choosing a `DNP_` technology, which lost the part's real value.
+
+MNF and REF are not properties: they belong to the value chosen from the library list.
+
+## NAME on a net asks only when it matters
+
+- A net in one piece, only on this sheet: renamed straight away.
+- A net in several pieces on this sheet: NAME asks whether to rename only the piece clicked or the
+  whole net on this sheet.
+- A net on several sheets: NAME asks whether to rename only the piece (when there are several), the
+  net on this sheet, or the net on all sheets.
+
+On the command line: `NAME (x y) NEW` renames the piece at that point, `NAME OLD NEW SHEET` the net on
+this sheet, `NAME OLD NEW` the net on all sheets.

@@ -11,10 +11,10 @@ public static partial class CommandExecutor
     private static readonly Dictionary<string, Func<Editor, Command, string>> Handlers = new()
     {
         ["ADD"] = Add,
+        ["CHANGE"] = ChangeCommand,
         ["COPY"] = Copy,
         ["CUT"] = Cut,
         ["DELETE"] = Delete,
-        ["DNP"] = Dnp,
         ["EDIT"] = Edit,
         ["GRID"] = Grid,
         ["GROUP"] = Group,
@@ -24,7 +24,6 @@ public static partial class CommandExecutor
         ["MOVE"] = Move,
         ["NAME"] = Name,
         ["NET"] = Net,
-        ["NO_BOM"] = NoBom,
         ["PASTE"] = Paste,
         ["REDO"] = Redo,
         ["ROTATE"] = Rotate,

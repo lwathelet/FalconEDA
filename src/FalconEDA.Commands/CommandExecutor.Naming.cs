@@ -7,8 +7,10 @@ namespace FalconEDA.Commands;
 public static partial class CommandExecutor
 {
     /// <summary>
-    /// NAME R7 R70 renames a part, NAME N$12 VBAT a net (on every sheet; a name already in use joins the two nets).
-    /// NAME alone: click a part or net, then type the new name.
+    /// NAME R7 R70 renames a part. For a net: NAME N$12 VBAT renames it on every sheet, NAME N$12 VBAT SHEET only on
+    /// this sheet, NAME (x y) VBAT only the connected piece at that point. A name already in use joins the nets.
+    /// NAME alone: click a part or net, then type the new name; for a net that has several pieces or is on several
+    /// sheets the app also asks what to rename.
     /// </summary>
     private static string Name(Editor editor, Command command)
     {
@@ -17,21 +19,85 @@ public static partial class CommandExecutor
             case []:
                 return StartTool(editor, new ClickTool(editor, "NAME: left-click a part or net to rename it. Esc ends.", false, (p, radius) =>
                 {
-                    if (ObjectNameAt(editor, p, radius) is { } name)
-                        editor.RequestRename(name);
+                    if (RenameRequestAt(editor, p, radius) is { } request)
+                        editor.RequestRename(request);
                 }));
+            case [CoordinateArgument at, WordArgument or TextArgument]:
+                return RenamePiece(editor, ToMm(editor, at.Value), ArgumentText(command.Arguments[1]));
             case [WordArgument or TextArgument, WordArgument or TextArgument]:
                 return Rename(editor, ArgumentText(command.Arguments[0]), ArgumentText(command.Arguments[1]));
+            case [WordArgument or TextArgument, WordArgument or TextArgument, WordArgument { Value: var scope }]
+                when scope.Equals("SHEET", StringComparison.OrdinalIgnoreCase):
+                return Rename(editor, ArgumentText(command.Arguments[0]), ArgumentText(command.Arguments[1]), sheetOnly: true);
             default:
-                throw new CommandException("NAME: use NAME, or NAME old new (for a part or a net).");
+                throw new CommandException("NAME: use NAME, NAME old new, NAME old new SHEET, or NAME (x y) new.");
         }
     }
 
-    /// <summary>Renames a part, or else a net; public for the rename dialog.</summary>
-    public static string Rename(Editor editor, string oldName, string newName)
+    /// <summary>
+    /// What a click for NAME means, and for a net which scopes to offer: none when the net is one piece on this
+    /// sheet only; this piece or the whole sheet when it has several pieces; this sheet or all sheets when it goes on.
+    /// </summary>
+    private static RenameRequest? RenameRequestAt(Editor editor, Point p, double radius)
     {
-        if (newName.Length == 0 || newName.Any(char.IsWhiteSpace))
+        var sheet = editor.Sheet;
+        var text = sheet.TextAt(p, radius);
+        if (text is PlacedAttribute attribute && sheet.Instances.FirstOrDefault(i => i.Attributes.Contains(attribute)) is { } owner)
+            return new RenameRequest(owner.Part, false, null, []);
+
+        // A label stands for the net piece it is next to.
+        var at = text is Label label ? label.Position : p;
+        var piece = text is Label l
+            ? sheet.Nets.Where(n => n.Labels.Contains(l)).Select(n => sheet.NetPieceAt(l.Position, double.MaxValue)).FirstOrDefault()
+            : sheet.NetPieceAt(p, radius);
+        if (piece is { } found)
+        {
+            var (net, wires) = found;
+            var severalPieces = Core.Net.ConnectedGroups(net.Wires).Count > 1;
+            var otherSheets = editor.Schematic.Sheets.Any(s => s != sheet && s.Nets.Any(n => n.Name == net.Name));
+            var scopes = new List<NameScope>();
+            if (severalPieces)
+                scopes.Add(NameScope.Piece);
+            if (severalPieces || otherSheets)
+                scopes.Add(NameScope.Sheet);
+            if (otherSheets)
+                scopes.Add(NameScope.AllSheets);
+            return new RenameRequest(net.Name, true, NearestPointOn(wires, at), scopes);
+        }
+
+        return sheet.InstanceAt(p, radius) is { } instance ? new RenameRequest(instance.Part, false, null, []) : null;
+    }
+
+    /// <summary>A point on the piece, to name it in a NAME (x y) command.</summary>
+    private static Point NearestPointOn(List<Wire> wires, Point p)
+    {
+        var wire = wires.MinBy(w => w.DistanceTo(p))!;
+        return wire.From.DistanceTo(p) <= wire.To.DistanceTo(p) ? wire.From : wire.To;
+    }
+
+    /// <summary>Renames the connected piece of a net at <paramref name="p"/>.</summary>
+    private static string RenamePiece(Editor editor, Point p, string newName)
+    {
+        CheckName(newName);
+        if (editor.Sheet.NetPieceAt(p, editor.Grid.SizeMm / 2) is not var (net, piece))
+            throw new CommandException("NAME: there is no net at that point.");
+        var oldName = net.Name;
+        editor.Checkpoint();
+        editor.Schematic.RenameNetPiece(editor.Sheet, net, piece, newName);
+        editor.NotifyChanged();
+        return $"Piece of {oldName} is now {newName}";
+    }
+
+    private static void CheckName(string name)
+    {
+        if (name.Length == 0 || name.Any(char.IsWhiteSpace))
             throw new CommandException("NAME: a name cannot be empty or contain spaces.");
+    }
+
+    /// <summary>Renames a part, or else a net, on every sheet or only on this one.</summary>
+    public static string Rename(Editor editor, string oldName, string newName, bool sheetOnly = false)
+    {
+        CheckName(newName);
 
         if (editor.Schematic.Parts.Keys.FirstOrDefault(k => k.Equals(oldName, StringComparison.OrdinalIgnoreCase)) is { } part)
         {
@@ -43,13 +109,14 @@ public static partial class CommandExecutor
             return $"Part {part} is now {newName}";
         }
 
-        if (editor.Schematic.HasNet(oldName))
+        if (sheetOnly ? editor.Sheet.Nets.Any(n => n.Name == oldName) : editor.Schematic.HasNet(oldName))
         {
-            var joins = editor.Schematic.HasNet(newName);
-            editor.Checkpoint(allSheets: true);
-            editor.Schematic.RenameNet(oldName, newName);
+            var joins = sheetOnly ? editor.Sheet.Nets.Any(n => n.Name == newName) : editor.Schematic.HasNet(newName);
+            editor.Checkpoint(allSheets: !sheetOnly);
+            editor.Schematic.RenameNet(oldName, newName, sheetOnly ? editor.Sheet : null);
             editor.NotifyChanged();
-            return joins ? $"Net {oldName} joined to {newName}" : $"Net {oldName} is now {newName}";
+            var where = sheetOnly ? " on this sheet" : "";
+            return joins ? $"Net {oldName} joined to {newName}{where}" : $"Net {oldName} is now {newName}{where}";
         }
 
         throw new CommandException($"NAME: there is no part or net {oldName}.");
@@ -208,6 +275,12 @@ public static partial class CommandExecutor
         return string.Join("; ", messages);
     }
 }
+
+/// <summary>
+/// What NAME asks the app to rename: a part, or a net with the scopes to offer (none: just ask for the name).
+/// <paramref name="At"/> is a point on the clicked net piece, for renaming just that piece.
+/// </summary>
+public sealed record RenameRequest(string Name, bool IsNet, Point? At, IReadOnlyList<NameScope> Scopes);
 
 /// <summary>A tool that does something with each click: NAME, JUNCTION, SMASH, SHOW.</summary>
 public sealed class ClickTool(Editor editor, string prompt, bool snap, Action<Point, double> onClick) : ITool

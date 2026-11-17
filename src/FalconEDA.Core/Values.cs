@@ -7,7 +7,8 @@ public sealed record ValueOption(string Technology, string Val, string Mnf, stri
 
 /// <summary>
 /// A component's list of values, kept in the library as Eagle technologies with the attributes VAL, MNF and REF
-/// (see docs/design-decisions.md), and the DNP and NO_BOM flags of a part.
+/// (see docs/design-decisions.md), and the DNP and BOM properties of a part. A part is in the bill of materials
+/// unless it carries the attribute NO_BOM (set with CHANGE BOM OFF).
 /// </summary>
 public static class Values
 {

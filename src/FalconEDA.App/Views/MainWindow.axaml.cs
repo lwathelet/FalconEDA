@@ -12,6 +12,7 @@ using Avalonia.VisualTree;
 using FalconEDA.App.ViewModels;
 using FalconEDA.Commands;
 using FalconEDA.Core;
+using NameScope = FalconEDA.Core.NameScope;
 
 namespace FalconEDA.App.Views;
 
@@ -37,7 +38,7 @@ public partial class MainWindow : Window
                 vm.SaveAsRequested += async () => await SaveAsAsync();
                 vm.Editor.AddDialogRequested += async filter => await ChoosePartAsync(filter);
                 vm.Editor.ValueDialogRequested += async part => await ChooseValueAsync(part);
-                vm.Editor.RenameRequested += async name => await RenameAsync(name);
+                vm.Editor.RenameRequested += async request => await RenameAsync(request);
             }
         };
 
@@ -218,7 +219,7 @@ public partial class MainWindow : Window
             var values = Values.Of(device);
             if (values.Count > 0)
             {
-                var picked = await new ValueDialog($"ADD {deviceSet.Name}{deviceName}: value", values, null, null, false, false, showFlags: false)
+                var picked = await new ValueDialog($"ADD {deviceSet.Name}{deviceName}: value", values, null, null, false, true, showFlags: false)
                     .ShowDialog<ValueChoice?>(this);
                 if (picked is null)
                 {
@@ -243,7 +244,7 @@ public partial class MainWindow : Window
         CommandBox.Focus();
     }
 
-    /// <summary>The value table for a part (VALUE); what is chosen is done with the VALUE, DNP and NO_BOM commands.</summary>
+    /// <summary>The value table for a part (VALUE); what is chosen is done with the VALUE, DNP and CHANGE BOM commands.</summary>
     private async Task ChooseValueAsync(string partName)
     {
         if (ViewModel is not { } vm || !vm.Editor.Schematic.Parts.TryGetValue(partName, out var part))
@@ -252,9 +253,9 @@ public partial class MainWindow : Window
         var device = CommandExecutor.DeviceOf(vm.Editor.Schematic, part);
         var values = device is null ? [] : Values.Of(device);
         var dnp = Values.IsDnp(part);
-        var noBom = Values.IsNoBom(part);
+        var inBom = !Values.IsNoBom(part);
         var choice = await new ValueDialog($"VALUE {part.Name} ({part.DeviceSet}{part.Device})", values, part.Technology,
-            vm.Editor.Schematic.ValueOf(part), dnp, noBom, showFlags: true).ShowDialog<ValueChoice?>(this);
+            vm.Editor.Schematic.ValueOf(part), dnp, inBom, showFlags: true).ShowDialog<ValueChoice?>(this);
         if (choice is not null)
         {
             if (choice.NewVal is not null)
@@ -265,21 +266,40 @@ public partial class MainWindow : Window
                 vm.RunTextCommand.Execute($"VALUE {part.Name} {Quote(choice.FreeValue)}");
 
             if (choice.Dnp != dnp)
-                vm.RunTextCommand.Execute($"DNP {part.Name} {(choice.Dnp ? "ON" : "OFF")}");
-            if (choice.NoBom != noBom)
-                vm.RunTextCommand.Execute($"NO_BOM {part.Name} {(choice.NoBom ? "ON" : "OFF")}");
+                vm.RunTextCommand.Execute($"CHANGE DNP {(choice.Dnp ? "ON" : "OFF")} {part.Name}");
+            if (choice.InBom != inBom)
+                vm.RunTextCommand.Execute($"CHANGE BOM {(choice.InBom ? "ON" : "OFF")} {part.Name}");
         }
         CommandBox.Focus();
     }
 
-    /// <summary>NAME: asks for the new name of a part or net, then renames it with the NAME command.</summary>
-    private async Task RenameAsync(string name)
+    /// <summary>
+    /// NAME: asks for the new name of a part or net, and for a net with several pieces or on several sheets what to
+    /// rename; then renames it with the NAME command.
+    /// </summary>
+    private async Task RenameAsync(RenameRequest request)
     {
         if (ViewModel is not { } vm)
             return;
-        var newName = await new InputDialog("NAME", $"New name for {name}:", name).ShowDialog<string?>(this);
-        if (!string.IsNullOrEmpty(newName) && newName != name)
-            vm.RunTextCommand.Execute($"NAME {Quote(name)} {Quote(newName)}");
+        var labels = request.Scopes.Select(s => s switch
+        {
+            NameScope.Piece => "Only this piece of the net",
+            NameScope.Sheet => "The whole net on this sheet",
+            _ => "The net on all sheets",
+        }).ToList();
+        var answer = await new InputDialog("NAME", $"New name for {request.Name}:", request.Name, labels).ShowDialog<InputResult?>(this);
+        if (answer is { Text.Length: > 0 } && answer.Text != request.Name)
+        {
+            var scope = request.Scopes.Count > 0 ? request.Scopes[answer.Choice] : NameScope.AllSheets;
+            var unit = vm.Editor.Grid.Unit.ToMm();
+            string N(double v) => (v / unit).ToString("0.######", System.Globalization.CultureInfo.InvariantCulture);
+            vm.RunTextCommand.Execute(scope switch
+            {
+                NameScope.Piece when request.At is { } at => $"NAME ({N(at.X)} {N(at.Y)}) {Quote(answer.Text)}",
+                NameScope.Sheet => $"NAME {Quote(request.Name)} {Quote(answer.Text)} SHEET",
+                _ => $"NAME {Quote(request.Name)} {Quote(answer.Text)}",
+            });
+        }
         CommandBox.Focus();
     }
 

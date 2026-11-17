@@ -52,8 +52,10 @@
                 <MenuItem Header="_Name..." Command="{Binding RunTextCommand}" CommandParameter="NAME" />
                 <MenuItem Header="_Value..." Command="{Binding RunTextCommand}" CommandParameter="VALUE" />
                 <MenuItem Header="_Smash" Command="{Binding RunTextCommand}" CommandParameter="SMASH" />
-                <MenuItem Header="D_NP on/off" Command="{Binding RunTextCommand}" CommandParameter="DNP" />
-                <MenuItem Header="Not in _BOM on/off" Command="{Binding RunTextCommand}" CommandParameter="NO_BOM" />
+                <MenuItem Header="D_NP" Command="{Binding RunTextCommand}" CommandParameter="CHANGE DNP ON" />
+                <MenuItem Header="Populate (no DNP)" Command="{Binding RunTextCommand}" CommandParameter="CHANGE DNP OFF" />
+                <MenuItem Header="Leave out of _BOM" Command="{Binding RunTextCommand}" CommandParameter="CHANGE BOM OFF" />
+                <MenuItem Header="Put back in BOM" Command="{Binding RunTextCommand}" CommandParameter="CHANGE BOM ON" />
                 <Separator />
                 <MenuItem Header="_Move" Command="{Binding RunTextCommand}" CommandParameter="MOVE" />
                 <MenuItem Header="R_otate" Command="{Binding RunTextCommand}" CommandParameter="ROTATE" />
