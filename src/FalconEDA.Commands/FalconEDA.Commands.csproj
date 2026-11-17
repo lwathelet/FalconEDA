@@ -1,7 +1,7 @@
 ﻿<Project Sdk="Microsoft.NET.Sdk">
 
   <ItemGroup>
-    <ProjectReference Include="..\FalconCAD.Core\FalconCAD.Core.csproj" />
+    <ProjectReference Include="..\FalconEDA.Core\FalconEDA.Core.csproj" />
   </ItemGroup>
 
   <PropertyGroup>

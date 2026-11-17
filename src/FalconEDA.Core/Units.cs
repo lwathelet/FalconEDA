@@ -1,4 +1,4 @@
-namespace FalconCAD.Core;
+namespace FalconEDA.Core;
 
 public enum Unit
 {

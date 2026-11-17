@@ -1,13 +1,13 @@
 using System.Globalization;
 using System.Xml;
 using System.Xml.Linq;
-using FalconCAD.Core;
+using FalconEDA.Core;
 
-namespace FalconCAD.IO;
+namespace FalconEDA.IO;
 
 /// <summary>
 /// Reads Eagle XML schematics (.sch), following the published Eagle DTD.
-/// Elements FalconCAD does not use yet (modules, variants, SPICE data...) are skipped.
+/// Elements FalconEDA does not use yet (modules, variants, SPICE data...) are skipped.
 /// </summary>
 public static class EagleSchematicReader
 {
@@ -67,6 +67,7 @@ public static class EagleSchematicReader
                 Device = Str(element, "device"),
                 Technology = Str(element, "technology"),
                 Value = (string?)element.Attribute("value"),
+                Source = element,
             };
             foreach (var attribute in element.Elements("attribute"))
                 part.Attributes[Str(attribute, "name")] = Str(attribute, "value");
@@ -77,6 +78,9 @@ public static class EagleSchematicReader
             ReadSheet(element, schematic.AddSheet());
         if (schematic.Sheets.Count == 0)
             schematic.AddSheet();
+
+        // Kept so that saving changes only what was edited.
+        SourceDocuments.Set(schematic, document);
 
         return schematic;
     }
@@ -98,11 +102,11 @@ public static class EagleSchematicReader
 
     private static Library ReadLibrary(XElement element)
     {
-        var library = new Library { Name = Str(element, "name"), Urn = Str(element, "urn") };
+        var library = new Library { Name = Str(element, "name"), Urn = Str(element, "urn"), Source = element };
 
         foreach (var s in element.Element("symbols")?.Elements("symbol") ?? [])
         {
-            var symbol = new Symbol { Name = Str(s, "name") };
+            var symbol = new Symbol { Name = Str(s, "name"), Source = s };
             ReadGraphics(s, symbol.Graphics);
             foreach (var pin in s.Elements("pin"))
                 symbol.Pins.Add(ReadPin(pin));
@@ -116,6 +120,7 @@ public static class EagleSchematicReader
                 Name = Str(ds, "name"),
                 Prefix = Str(ds, "prefix"),
                 UserValue = Bool(ds, "uservalue", false),
+                Source = ds,
             };
             foreach (var gate in ds.Element("gates")?.Elements("gate") ?? [])
                 deviceSet.Gates[Str(gate, "name")] = new Gate { Name = Str(gate, "name"), Symbol = Str(gate, "symbol") };
@@ -153,6 +158,7 @@ public static class EagleSchematicReader
                 Position = Pt(i, "x", "y"),
                 Rotation = Rotation.Parse((string?)i.Attribute("rot")),
                 Smashed = Bool(i, "smashed", false),
+                Source = i,
             };
             foreach (var a in i.Elements("attribute"))
             {
@@ -184,7 +190,7 @@ public static class EagleSchematicReader
 
     private static Net ReadNet(XElement element)
     {
-        var net = new Net { Name = Str(element, "name") };
+        var net = new Net { Name = Str(element, "name"), Class = Int(element, "class") };
         foreach (var segment in element.Elements("segment"))
         {
             net.Wires.AddRange(segment.Elements("wire").Select(ReadWire));
@@ -271,6 +277,8 @@ public static class EagleSchematicReader
         Width = Dbl(w, "width"),
         Layer = Int(w, "layer"),
         Curve = Dbl(w, "curve"),
+        Style = Str(w, "style", "continuous"),
+        Cap = Str(w, "cap", "round"),
     };
 
     private static Pin ReadPin(XElement p) => new()

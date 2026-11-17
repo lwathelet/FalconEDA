@@ -1,22 +1,31 @@
-using FalconCAD.Core;
+using System.Globalization;
+using FalconEDA.Core;
 
-namespace FalconCAD.Commands;
+namespace FalconEDA.Commands;
 
 public sealed class CommandException(string message) : Exception(message);
 
 /// <summary>Runs parsed commands against an <see cref="Editor"/>.</summary>
-public static class CommandExecutor
+public static partial class CommandExecutor
 {
     private static readonly Dictionary<string, Func<Editor, Command, string>> Handlers = new()
     {
+        ["COPY"] = Copy,
+        ["CUT"] = Cut,
         ["DELETE"] = Delete,
         ["EDIT"] = Edit,
         ["GRID"] = Grid,
+        ["GROUP"] = Group,
+        ["MIRROR"] = Mirror,
+        ["MOVE"] = Move,
         ["NET"] = Net,
+        ["PASTE"] = Paste,
         ["REDO"] = Redo,
+        ["ROTATE"] = Rotate,
         ["UNDO"] = Undo,
         ["WINDOW"] = Window,
         ["WIRE"] = Wire,
+        ["WRITE"] = Write,
     };
 
     /// <summary>Runs one command and returns the message for the status bar.</summary>
@@ -67,7 +76,7 @@ public static class CommandExecutor
         }
 
         editor.NotifyChanged();
-        return $"Grid {grid.Size:0.####} {grid.Unit.Name()}" + (grid.Visible ? "" : " (hidden)");
+        return $"Grid {grid.Size.ToString("0.####", CultureInfo.InvariantCulture)} {grid.Unit.Name()}" + (grid.Visible ? "" : " (hidden)");
     }
 
     private static string Net(Editor editor, Command command)
@@ -108,13 +117,14 @@ public static class CommandExecutor
             }
         }
 
-        var layer = editor.ActiveLayer;
+        // Nets and Busses are reserved for NET and BUS, so a plain wire goes to Symbols instead.
+        var layer = editor.ActiveLayer is Sheet.NetLayer or Sheet.BusLayer ? Sheet.SymbolLayer : editor.ActiveLayer;
         void Commit(IReadOnlyList<Point> p)
         {
             editor.Checkpoint();
             editor.Sheet.AddWire(p, width, layer);
         }
-        var tool = new PolylineTool(editor, "WIRE", layer, width, Commit, endOnNet: false);
+        var tool = new PolylineTool(editor, $"WIRE on layer {layer}", layer, width, Commit, endOnNet: false);
         return Polyline(editor, points, Commit, tool);
     }
 
@@ -153,6 +163,20 @@ public static class CommandExecutor
 
         editor.ShowSheet(number - 1);
         return $"Sheet {number}/{editor.Schematic.Sheets.Count}";
+    }
+
+    // WRITE saves; WRITE name (or WRITE @name) saves under another name, as in Eagle.
+    private static string Write(Editor editor, Command command)
+    {
+        var path = command.Arguments switch
+        {
+            [] => null,
+            [WordArgument w] => w.Value,
+            [TextArgument t] => t.Value,
+            _ => throw new CommandException("WRITE: use WRITE or WRITE name.sch"),
+        };
+        editor.RequestSave(path?.TrimStart('@'));
+        return "";
     }
 
     private static string Undo(Editor editor, Command command) => editor.Undo() ? "" : "Nothing to undo";

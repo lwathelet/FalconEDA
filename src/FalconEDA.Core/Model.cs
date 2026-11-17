@@ -1,14 +1,35 @@
-namespace FalconCAD.Core;
+namespace FalconEDA.Core;
 
 public sealed class Part
 {
     public required string Name { get; init; }
+
+    /// <summary>What this part was read from (the file reader's XML), so it can be written back unchanged.</summary>
+    public object? Source { get; set; }
     public required string LibraryKey { get; init; }
     public required string DeviceSet { get; init; }
     public string Device { get; init; } = "";
     public string Technology { get; init; } = "";
     public string? Value { get; init; }
     public Dictionary<string, string> Attributes { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>A copy under another name, e.g. when pasting a part whose name is already taken.</summary>
+    public Part Renamed(string name)
+    {
+        var copy = new Part
+        {
+            Name = name,
+            LibraryKey = LibraryKey,
+            DeviceSet = DeviceSet,
+            Device = Device,
+            Technology = Technology,
+            Value = Value,
+            Source = Source,
+        };
+        foreach (var (key, value) in Attributes)
+            copy.Attributes[key] = value;
+        return copy;
+    }
 }
 
 public enum AttributeDisplay { Off, Value, Name, Both }
@@ -17,35 +38,49 @@ public enum AttributeDisplay { Off, Value, Name, Both }
 public sealed class PlacedAttribute
 {
     public required string Name { get; init; }
-    public Point? Position { get; init; }
+    public Point? Position { get; set; }
     public double Size { get; init; } = 1.778;
     public int Layer { get; init; }
-    public Rotation Rotation { get; init; }
+    public Rotation Rotation { get; set; }
     public Align Align { get; init; } = Align.BottomLeft;
     public AttributeDisplay Display { get; init; } = AttributeDisplay.Value;
+
+    public PlacedAttribute Clone() => (PlacedAttribute)MemberwiseClone();
 }
 
 /// <summary>One gate of a part placed on a sheet.</summary>
 public sealed class Instance
 {
-    public required string Part { get; init; }
+    public required string Part { get; set; }
     public required string Gate { get; init; }
-    public required Point Position { get; init; }
-    public Rotation Rotation { get; init; }
+    public required Point Position { get; set; }
+    public Rotation Rotation { get; set; }
     public bool Smashed { get; init; }
     public List<PlacedAttribute> Attributes { get; } = new();
 
+    /// <summary>What this instance was read from (the file reader's XML), so it can be written back unchanged.</summary>
+    public object? Source { get; set; }
+
     public Transform Transform => new(Position, Rotation);
+
+    public Instance Clone()
+    {
+        var copy = new Instance { Part = Part, Gate = Gate, Position = Position, Rotation = Rotation, Smashed = Smashed, Source = Source };
+        copy.Attributes.AddRange(Attributes.Select(a => a.Clone()));
+        return copy;
+    }
 }
 
 public sealed class Label
 {
-    public required Point Position { get; init; }
+    public required Point Position { get; set; }
     public double Size { get; init; } = 1.778;
     public int Layer { get; init; } = 95;
-    public Rotation Rotation { get; init; }
+    public Rotation Rotation { get; set; }
     public Align Align { get; init; } = Align.BottomLeft;
     public bool Xref { get; init; }
+
+    public Label Clone() => (Label)MemberwiseClone();
 }
 
 public sealed record PinRef(string Part, string Gate, string Pin);
@@ -54,6 +89,7 @@ public sealed record PinRef(string Part, string Gate, string Pin);
 public sealed class Net
 {
     public required string Name { get; set; }
+    public int Class { get; set; }
     public List<Wire> Wires { get; } = new();
     public List<Label> Labels { get; } = new();
 
@@ -89,9 +125,9 @@ public sealed class Net
 
     public Net Clone()
     {
-        var copy = new Net { Name = Name };
-        copy.Wires.AddRange(Wires);
-        copy.Labels.AddRange(Labels);
+        var copy = new Net { Name = Name, Class = Class };
+        copy.Wires.AddRange(Wires.Select(w => w.Clone()));
+        copy.Labels.AddRange(Labels.Select(l => l.Clone()));
         copy.Junctions.AddRange(Junctions);
         copy.PinRefs.AddRange(PinRefs);
         return copy;

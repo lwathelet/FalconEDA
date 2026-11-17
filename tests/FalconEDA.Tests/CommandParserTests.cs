@@ -1,7 +1,7 @@
-using FalconCAD.Commands;
-using FalconCAD.Core;
+using FalconEDA.Commands;
+using FalconEDA.Core;
 
-namespace FalconCAD.Tests;
+namespace FalconEDA.Tests;
 
 public class CommandParserTests
 {

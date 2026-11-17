@@ -1,4 +1,4 @@
-namespace FalconCAD.Core;
+namespace FalconEDA.Core;
 
 public sealed class Schematic
 {
@@ -62,6 +62,16 @@ public sealed class Schematic
             return null;
 
         return (part, deviceSet, gate, symbol, deviceSet.Devices.GetValueOrDefault(part.Device));
+    }
+
+    /// <summary>Where a pin connects on the given sheet, or null if its instance is not on that sheet.</summary>
+    public Point? PinPosition(Sheet sheet, PinRef pinRef)
+    {
+        var instance = sheet.Instances.FirstOrDefault(i => i.Part == pinRef.Part && i.Gate == pinRef.Gate);
+        if (instance is null || Resolve(instance)?.Symbol is not { } symbol)
+            return null;
+        var pin = symbol.Pins.FirstOrDefault(p => p.Name == pinRef.Pin);
+        return pin is null ? null : instance.Transform.Apply(pin.Position);
     }
 
     /// <summary>The part value shown on the sheet; without a user value Eagle shows the device name.</summary>

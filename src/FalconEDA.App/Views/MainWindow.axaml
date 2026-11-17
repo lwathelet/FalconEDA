@@ -1,12 +1,12 @@
 <Window xmlns="https://github.com/avaloniaui"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        xmlns:vm="using:FalconCAD.App.ViewModels"
-        xmlns:controls="using:FalconCAD.App.Controls"
+        xmlns:vm="using:FalconEDA.App.ViewModels"
+        xmlns:controls="using:FalconEDA.App.Controls"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
         mc:Ignorable="d" d:DesignWidth="1200" d:DesignHeight="750"
         WindowState="Maximized"
-        x:Class="FalconCAD.App.Views.MainWindow"
+        x:Class="FalconEDA.App.Views.MainWindow"
         x:DataType="vm:MainViewModel"
         Icon="/Assets/avalonia-logo.ico"
         Title="{Binding Title}">
@@ -14,10 +14,6 @@
     <Design.DataContext>
         <vm:MainViewModel />
     </Design.DataContext>
-
-    <Window.KeyBindings>
-        <KeyBinding Gesture="Escape" Command="{Binding CancelCommand}" />
-    </Window.KeyBindings>
 
     <Window.Styles>
         <Style Selector="Button.tool">
@@ -35,9 +31,11 @@
     </Window.Styles>
 
     <DockPanel>
-        <Menu DockPanel.Dock="Top">
+        <Menu x:Name="MainMenu" DockPanel.Dock="Top">
             <MenuItem Header="_File">
                 <MenuItem Header="_Open..." InputGesture="Ctrl+O" Click="OnOpen" />
+                <MenuItem Header="_Save" InputGesture="Ctrl+S" Command="{Binding RunTextCommand}" CommandParameter="WRITE" />
+                <MenuItem Header="Save _As..." InputGesture="Ctrl+Shift+S" Click="OnSaveAs" />
                 <Separator />
                 <MenuItem Header="E_xit" Click="OnExit" />
             </MenuItem>
@@ -45,6 +43,15 @@
                 <MenuItem Header="_Undo" InputGesture="Ctrl+Z" Command="{Binding RunTextCommand}" CommandParameter="UNDO" />
                 <MenuItem Header="_Redo" InputGesture="Ctrl+Y" Command="{Binding RunTextCommand}" CommandParameter="REDO" />
                 <Separator />
+                <MenuItem Header="Cu_t" InputGesture="Ctrl+X" Command="{Binding RunTextCommand}" CommandParameter="CUT" />
+                <MenuItem Header="_Copy" InputGesture="Ctrl+C" Command="{Binding RunTextCommand}" CommandParameter="COPY" />
+                <MenuItem Header="_Paste" InputGesture="Ctrl+V" Command="{Binding RunTextCommand}" CommandParameter="PASTE" />
+                <MenuItem Header="Delete _group" InputGesture="Delete" Command="{Binding DeleteSelectionCommand}" />
+                <MenuItem Header="Select _all" Command="{Binding RunTextCommand}" CommandParameter="GROUP ALL" />
+                <Separator />
+                <MenuItem Header="_Move" Command="{Binding RunTextCommand}" CommandParameter="MOVE" />
+                <MenuItem Header="R_otate" Command="{Binding RunTextCommand}" CommandParameter="ROTATE" />
+                <MenuItem Header="M_irror" Command="{Binding RunTextCommand}" CommandParameter="MIRROR" />
                 <MenuItem Header="_Delete" Command="{Binding RunTextCommand}" CommandParameter="DELETE" />
             </MenuItem>
             <MenuItem Header="_Draw">
@@ -64,6 +71,9 @@
             <Button Classes="tool" ToolTip.Tip="Open (Ctrl+O)" Click="OnOpen">
                 <Path Data="M3,6 H9 L11,8 H21 V19 H3 Z" />
             </Button>
+            <Button Classes="tool" ToolTip.Tip="Save (WRITE, Ctrl+S)" Command="{Binding RunTextCommand}" CommandParameter="WRITE">
+                <Path Data="M4,3 H17 L21,7 V21 H4 Z M8,3 V9 H16 V3 M7,21 V14 H18 V21" />
+            </Button>
             <ComboBox ItemsSource="{Binding SheetNames}" SelectedIndex="{Binding SheetIndex}"
                       ToolTip.Tip="Sheet (EDIT .s2)" MinWidth="70" VerticalAlignment="Center" Margin="4,0" />
             <Button Classes="tool" ToolTip.Tip="Undo (Ctrl+Z)" Command="{Binding RunTextCommand}" CommandParameter="UNDO">
@@ -71,6 +81,15 @@
             </Button>
             <Button Classes="tool" ToolTip.Tip="Redo (Ctrl+Y)" Command="{Binding RunTextCommand}" CommandParameter="REDO">
                 <Path Data="M16,5 L21,10 L16,15 M21,10 H9 A5,5 0 0 0 9,20 H13" />
+            </Button>
+            <Button Classes="tool" ToolTip.Tip="Cut the group (CUT, Ctrl+X)" Command="{Binding RunTextCommand}" CommandParameter="CUT">
+                <Path Data="M4,18 A3,3 0 1 0 10,18 A3,3 0 1 0 4,18 M14,18 A3,3 0 1 0 20,18 A3,3 0 1 0 14,18 M9,16 L18,3 M15,16 L6,3" />
+            </Button>
+            <Button Classes="tool" ToolTip.Tip="Copy the group (COPY, Ctrl+C)" Command="{Binding RunTextCommand}" CommandParameter="COPY">
+                <Path Data="M8,8 H20 V20 H8 Z M4,16 V4 H16" />
+            </Button>
+            <Button Classes="tool" ToolTip.Tip="Paste (PASTE, Ctrl+V)" Command="{Binding RunTextCommand}" CommandParameter="PASTE">
+                <Path Data="M7,4 H5 V21 H19 V4 H17 M8,2 H16 V6 H8 Z" />
             </Button>
             <Button Classes="tool" ToolTip.Tip="Fit (WINDOW FIT)" Command="{Binding RunTextCommand}" CommandParameter="WINDOW FIT">
                 <Path Data="M3,9 V3 H9 M15,3 H21 V9 M21,15 V21 H15 M9,21 H3 V15" />
@@ -99,6 +118,21 @@
 
         <!-- Tool palette -->
         <StackPanel DockPanel.Dock="Left" Margin="2">
+            <Button Classes="tool" ToolTip.Tip="Group: drag a rectangle (GROUP)" Command="{Binding RunTextCommand}" CommandParameter="GROUP">
+                <Path Data="M3,3 H8 M11,3 H16 M19,3 H21 V8 M21,11 V16 M21,19 V21 H16 M13,21 H8 M5,21 H3 V16 M3,13 V8 M3,5 V3" />
+            </Button>
+            <Button Classes="tool" ToolTip.Tip="Move (MOVE)" Command="{Binding RunTextCommand}" CommandParameter="MOVE">
+                <Path Data="M12,2 V22 M2,12 H22 M12,2 L9,5 M12,2 L15,5 M12,22 L9,19 M12,22 L15,19 M2,12 L5,9 M2,12 L5,15 M22,12 L19,9 M22,12 L19,15" />
+            </Button>
+            <Button Classes="tool" ToolTip.Tip="Copy an object (COPY)" Command="{Binding RunTextCommand}" CommandParameter="COPY">
+                <Path Data="M8,8 H20 V20 H8 Z M4,16 V4 H16" />
+            </Button>
+            <Button Classes="tool" ToolTip.Tip="Rotate (ROTATE)" Command="{Binding RunTextCommand}" CommandParameter="ROTATE">
+                <Path Data="M20,12 A8,8 0 1 1 12,4 M12,4 L9,1 M12,4 L9,7" />
+            </Button>
+            <Button Classes="tool" ToolTip.Tip="Mirror (MIRROR)" Command="{Binding RunTextCommand}" CommandParameter="MIRROR">
+                <Path Data="M12,2 V22 M9,6 L3,18 H9 Z M15,6 L21,18 H15 Z" />
+            </Button>
             <Button Classes="tool" ToolTip.Tip="Net (NET)" Command="{Binding RunTextCommand}" CommandParameter="NET">
                 <Path Data="M3,18 H12 V6 H21" />
             </Button>

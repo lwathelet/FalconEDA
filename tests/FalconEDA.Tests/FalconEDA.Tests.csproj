@@ -21,9 +21,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\..\src\FalconCAD.Core\FalconCAD.Core.csproj" />
-    <ProjectReference Include="..\..\src\FalconCAD.IO\FalconCAD.IO.csproj" />
-    <ProjectReference Include="..\..\src\FalconCAD.Commands\FalconCAD.Commands.csproj" />
+    <ProjectReference Include="..\..\src\FalconEDA.Core\FalconEDA.Core.csproj" />
+    <ProjectReference Include="..\..\src\FalconEDA.IO\FalconEDA.IO.csproj" />
+    <ProjectReference Include="..\..\src\FalconEDA.Commands\FalconEDA.Commands.csproj" />
   </ItemGroup>
 
 </Project>

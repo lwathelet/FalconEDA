@@ -5,17 +5,17 @@ VisualStudioVersion = 17.0.31903.59
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{827E0CD3-B72D-47B6-A68D-7590B98EB39B}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FalconCAD.Core", "src\FalconCAD.Core\FalconCAD.Core.csproj", "{0C4ACCCD-AA09-487F-8452-ED2F328782E2}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FalconEDA.Core", "src\FalconEDA.Core\FalconEDA.Core.csproj", "{0C4ACCCD-AA09-487F-8452-ED2F328782E2}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FalconCAD.IO", "src\FalconCAD.IO\FalconCAD.IO.csproj", "{13FCC93B-AE6B-4B1C-96BE-6543FCCFF48D}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FalconEDA.IO", "src\FalconEDA.IO\FalconEDA.IO.csproj", "{13FCC93B-AE6B-4B1C-96BE-6543FCCFF48D}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FalconCAD.Commands", "src\FalconCAD.Commands\FalconCAD.Commands.csproj", "{2A8D9ABD-07CD-4700-BA96-C93D1D7A81E0}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FalconEDA.Commands", "src\FalconEDA.Commands\FalconEDA.Commands.csproj", "{2A8D9ABD-07CD-4700-BA96-C93D1D7A81E0}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FalconCAD.App", "src\FalconCAD.App\FalconCAD.App.csproj", "{B072E539-6992-4E6B-AEEF-C162F931FB02}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FalconEDA.App", "src\FalconEDA.App\FalconEDA.App.csproj", "{B072E539-6992-4E6B-AEEF-C162F931FB02}"
 EndProject
 Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "tests", "tests", "{0AB3BF05-4346-4AA6-1389-037BE0695223}"
 EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FalconCAD.Tests", "tests\FalconCAD.Tests\FalconCAD.Tests.csproj", "{D389DCC1-5D2C-41E3-9047-2BF32A202925}"
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "FalconEDA.Tests", "tests\FalconEDA.Tests\FalconEDA.Tests.csproj", "{D389DCC1-5D2C-41E3-9047-2BF32A202925}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution

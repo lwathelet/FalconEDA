@@ -1,6 +1,6 @@
-using FalconCAD.Core;
+using FalconEDA.Core;
 
-namespace FalconCAD.Commands;
+namespace FalconEDA.Commands;
 
 /// <summary>A command waiting for mouse input, such as NET without coordinates.</summary>
 public interface ITool
@@ -18,6 +18,9 @@ public interface ITool
 
     /// <summary>Esc: abandon the current operation, or leave the tool if nothing is in progress.</summary>
     void Cancel();
+
+    /// <summary>Right mouse button; MOVE uses it to rotate what it carries, as in Eagle.</summary>
+    void RightClick(Point p) { }
 }
 
 /// <summary>Draws a polyline click by click. Used by NET and WIRE.</summary>
@@ -69,8 +72,8 @@ public sealed class PolylineTool : ITool
         if (_points.Count == 0 || !GeometryMath.SamePoint(_points[^1], p))
             _points.Add(p);
 
-        // Like Eagle, a net ends by itself when it lands on another net.
-        if (_endOnNet && _points.Count >= 2 && _editor.Sheet.Nets.Any(n => n.Touches(p)))
+        // Like Eagle, a net ends by itself when it lands on another net or on a pin.
+        if (_endOnNet && _points.Count >= 2 && (_editor.Sheet.Nets.Any(n => n.Touches(p)) || _editor.Sheet.PinsAt(p).Any()))
             Finish();
 
         _editor.NotifyChanged();

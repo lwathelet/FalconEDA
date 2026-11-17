@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace FalconCAD.Core;
+namespace FalconEDA.Core;
 
 /// <summary>A text ready to draw: placeholders resolved, angle normalised so it reads left-to-right or bottom-to-top.</summary>
 public sealed record TextPrimitive(string Value, Point Position, double Size, double Angle, Align Align, int Layer);

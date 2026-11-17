@@ -1,6 +1,6 @@
-using FalconCAD.Core;
+using FalconEDA.Core;
 
-namespace FalconCAD.Commands;
+namespace FalconEDA.Commands;
 
 /// <summary>One parsed command: a name followed by its arguments.</summary>
 public sealed record Command(string Name, IReadOnlyList<Argument> Arguments);

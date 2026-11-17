@@ -1,7 +1,7 @@
 ﻿using Avalonia;
 using System;
 
-namespace FalconCAD.App;
+namespace FalconEDA.App;
 
 sealed class Program
 {

@@ -1,10 +1,10 @@
 using Avalonia;
 using Avalonia.Controls.ApplicationLifetimes;
 using Avalonia.Markup.Xaml;
-using FalconCAD.App.ViewModels;
-using FalconCAD.App.Views;
+using FalconEDA.App.ViewModels;
+using FalconEDA.App.Views;
 
-namespace FalconCAD.App;
+namespace FalconEDA.App;
 
 public partial class App : Application
 {
@@ -19,7 +19,7 @@ public partial class App : Application
         {
             var viewModel = new MainViewModel();
 
-            // FalconCAD.App.exe file.sch opens that file.
+            // FalconEDA.App.exe file.sch opens that file.
             if (desktop.Args is [var path, ..])
                 viewModel.OpenFile(path);
 

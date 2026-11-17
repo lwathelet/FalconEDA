@@ -6,13 +6,13 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Input;
 using Avalonia.Media;
-using FalconCAD.Commands;
-using FalconCAD.Core;
-using CorePoint = FalconCAD.Core.Point;
+using FalconEDA.Commands;
+using FalconEDA.Core;
+using CorePoint = FalconEDA.Core.Point;
 using Point = Avalonia.Point;
 using Rect = Avalonia.Rect;
 
-namespace FalconCAD.App.Controls;
+namespace FalconEDA.App.Controls;
 
 /// <summary>
 /// Draws the current sheet and forwards mouse clicks to the active tool.
@@ -25,6 +25,11 @@ public sealed class EditorCanvas : Control
 
     private static readonly IBrush GridBrush = new SolidColorBrush(Color.FromRgb(110, 110, 110));
     private static readonly IPen OriginPen = new Pen(Brushes.Gray, 1);
+    private static readonly IBrush HighlightBrush = new SolidColorBrush(Color.FromRgb(255, 255, 255));
+    private static readonly IPen SelectionRectPen = new Pen(Brushes.White, 1, new DashStyle(new double[] { 4, 3 }, 0));
+
+    // Below this many pixels of mouse travel, a press and release is a click, not a drag.
+    private const double DragThreshold = 4;
     private static readonly Typeface TextFace = new("Arial");
 
     // The usual 16-colour palette on a black background, indexed by the layer colour stored in Eagle files.
@@ -40,6 +45,10 @@ public sealed class EditorCanvas : Control
     // Until the user zooms or pans, keep the whole sheet in view while the window resizes.
     private bool _autoFit = true;
     private Point? _panFrom;
+
+    // Selecting without a tool: where the left button went down, and the rectangle being dragged.
+    private Point? _pressAt;
+    private Rect? _dragRect;
 
     // Rebuilt when the editor reports a change.
     private SheetView? _view;
@@ -138,7 +147,7 @@ public sealed class EditorCanvas : Control
         if (Bounds.Width <= 0 || Bounds.Height <= 0)
             return;
 
-        var bounds = View?.Bounds() ?? new FalconCAD.Core.Rect(new CorePoint(0, 0), new CorePoint(250, 180));
+        var bounds = View?.Bounds() ?? new FalconEDA.Core.Rect(new CorePoint(0, 0), new CorePoint(250, 180));
         var width = Math.Max(bounds.Width, 10);
         var height = Math.Max(bounds.Height, 10);
         _scale = Math.Min(Bounds.Width / width, Bounds.Height / height) * 0.9;
@@ -184,6 +193,31 @@ public sealed class EditorCanvas : Control
             foreach (var wire in tool.Preview)
                 DrawWire(context, wire);
         }
+
+        DrawSelection(context, editor);
+        if (_dragRect is { } rect)
+            context.DrawRectangle(null, SelectionRectPen, rect);
+    }
+
+    /// <summary>The group is drawn over the sheet in white, like Eagle's highlighted group.</summary>
+    private void DrawSelection(DrawingContext context, Editor editor)
+    {
+        var selection = editor.Selection;
+        if (selection.IsEmpty)
+            return;
+
+        void Line(Wire w, double width) =>
+            context.DrawLine(new Pen(HighlightBrush, Math.Max(1.5, width * _scale), lineCap: PenLineCap.Round), ToScreen(w.From), ToScreen(w.To));
+
+        foreach (var wire in selection.Wires)
+            Line(wire, wire.Width);
+        foreach (var instance in selection.Instances)
+        {
+            foreach (var wire in editor.Sheet.Outline(instance))
+                Line(wire, wire.Width);
+        }
+        foreach (var label in selection.Labels)
+            context.DrawEllipse(null, new Pen(HighlightBrush, 1.5), ToScreen(label.Position), 4, 4);
     }
 
     private void DrawGrid(DrawingContext context, Editor editor)
@@ -305,9 +339,21 @@ public sealed class EditorCanvas : Control
             e.Pointer.Capture(this);
             e.Handled = true;
         }
+        else if (point.Properties.IsRightButtonPressed && Editor?.Tool is { } rightTool)
+        {
+            rightTool.RightClick(Snapped(point.Position, rightTool.SnapToGrid));
+            e.Handled = true;
+        }
         else if (point.Properties.IsLeftButtonPressed && Editor?.Tool is { } tool)
         {
             tool.Click(Snapped(point.Position, tool.SnapToGrid), PickRadius, e.ClickCount);
+            e.Handled = true;
+        }
+        else if (point.Properties.IsLeftButtonPressed && Editor is not null)
+        {
+            // No tool: a click selects one object, a drag selects everything in a rectangle.
+            _pressAt = point.Position;
+            e.Pointer.Capture(this);
             e.Handled = true;
         }
     }
@@ -321,6 +367,16 @@ public sealed class EditorCanvas : Control
             _offset += position - from;
             _panFrom = position;
             InvalidateVisual();
+        }
+
+        if (_pressAt is { } start)
+        {
+            var travel = position - start;
+            if (_dragRect is not null || Math.Abs(travel.X) + Math.Abs(travel.Y) > DragThreshold)
+            {
+                _dragRect = new Rect(start, position).Normalize();
+                InvalidateVisual();
+            }
         }
 
         if (Editor is not { } editor)
@@ -342,6 +398,39 @@ public sealed class EditorCanvas : Control
         {
             _panFrom = null;
             e.Pointer.Capture(null);
+        }
+
+        if (e.InitialPressMouseButton == MouseButton.Left && _pressAt is { } start && Editor is { } editor)
+        {
+            Selection picked;
+            if (_dragRect is { } rect)
+            {
+                var a = ToWorld(rect.TopLeft);
+                var b = ToWorld(rect.BottomRight);
+                picked = editor.Sheet.SelectIn(new FalconEDA.Core.Rect(
+                    new CorePoint(Math.Min(a.X, b.X), Math.Min(a.Y, b.Y)),
+                    new CorePoint(Math.Max(a.X, b.X), Math.Max(a.Y, b.Y))));
+            }
+            else
+            {
+                picked = editor.Sheet.SelectAt(ToWorld(start), PickRadius);
+            }
+
+            // Ctrl adds to the group or removes from it; otherwise the pick replaces the group.
+            if (e.KeyModifiers.HasFlag(KeyModifiers.Control))
+            {
+                editor.Selection.Toggle(picked);
+            }
+            else
+            {
+                editor.Selection.Clear();
+                editor.Selection.UnionWith(picked);
+            }
+
+            _pressAt = null;
+            _dragRect = null;
+            e.Pointer.Capture(null);
+            editor.NotifyChanged();
         }
     }
 

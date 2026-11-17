@@ -1,6 +1,6 @@
 using System.Globalization;
 
-namespace FalconCAD.Core;
+namespace FalconEDA.Core;
 
 /// <summary>A point in board/sheet space. Units are millimetres.</summary>
 public readonly record struct Point(double X, double Y)
@@ -57,6 +57,15 @@ public readonly record struct Rotation(double Angle, bool Mirror = false, bool S
 
     public override string ToString() =>
         $"{(Spin ? "S" : "")}{(Mirror ? "M" : "")}R{Angle.ToString(CultureInfo.InvariantCulture)}";
+
+    /// <summary>
+    /// The orientation after turning the object 90 degrees counter-clockwise on the sheet.
+    /// Because the mirror is applied after the rotation, a mirrored object's own angle turns the other way.
+    /// </summary>
+    public Rotation Rotated90() => this with { Angle = GeometryMath.NormalizeAngle(Mirror ? Angle - 90 : Angle + 90) };
+
+    /// <summary>The orientation after mirroring the object left-to-right on the sheet.</summary>
+    public Rotation Mirrored() => this with { Mirror = !Mirror };
 }
 
 /// <summary>Places local coordinates (a symbol) into the sheet: rotate, mirror, then move.</summary>
@@ -93,4 +102,10 @@ public static class GeometryMath
     public static bool SamePoint(Point a, Point b) => a.DistanceTo(b) < Epsilon;
 
     public static double NormalizeAngle(double degrees) => ((degrees % 360) + 360) % 360;
+
+    /// <summary>Turns <paramref name="p"/> 90 degrees counter-clockwise around <paramref name="pivot"/>.</summary>
+    public static Point Rotate90(Point p, Point pivot) => new(pivot.X - (p.Y - pivot.Y), pivot.Y + (p.X - pivot.X));
+
+    /// <summary>Mirrors <paramref name="p"/> left-to-right about the vertical line through <paramref name="pivot"/>.</summary>
+    public static Point MirrorX(Point p, Point pivot) => new(2 * pivot.X - p.X, p.Y);
 }

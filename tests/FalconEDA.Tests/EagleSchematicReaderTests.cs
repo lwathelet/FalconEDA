@@ -1,12 +1,12 @@
 using System.Text;
-using FalconCAD.Core;
-using FalconCAD.IO;
+using FalconEDA.Core;
+using FalconEDA.IO;
 
-namespace FalconCAD.Tests;
+namespace FalconEDA.Tests;
 
 public class EagleSchematicReaderTests
 {
-    private const string Sample = """
+    internal const string Sample = """
         <?xml version="1.0" encoding="utf-8"?>
         <!DOCTYPE eagle SYSTEM "eagle.dtd">
         <eagle version="9.4.2">

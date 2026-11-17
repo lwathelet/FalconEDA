@@ -8,11 +8,11 @@ Status: early scaffolding.
 
 | Project | Purpose |
 |---|---|
-| `src/FalconCAD.Core` | Data model and geometry |
-| `src/FalconCAD.IO` | File reading and writing |
-| `src/FalconCAD.Commands` | Command-line parser and command set |
-| `src/FalconCAD.App` | Avalonia desktop application |
-| `tests/FalconCAD.Tests` | Unit tests |
+| `src/FalconEDA.Core` | Data model and geometry |
+| `src/FalconEDA.IO` | File reading and writing |
+| `src/FalconEDA.Commands` | Command-line parser and command set |
+| `src/FalconEDA.App` | Avalonia desktop application |
+| `tests/FalconEDA.Tests` | Unit tests |
 
 ## Build
 

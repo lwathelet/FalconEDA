@@ -1,4 +1,4 @@
-namespace FalconCAD.Core;
+namespace FalconEDA.Core;
 
 public enum HAlign { Left, Center, Right }
 
@@ -41,15 +41,23 @@ public sealed class Layer
 
 public sealed class Wire
 {
-    public required Point From { get; init; }
-    public required Point To { get; init; }
+    public required Point From { get; set; }
+    public required Point To { get; set; }
     public double Width { get; init; } = 0.15;
     public int Layer { get; init; }
 
     /// <summary>Arc angle in degrees; positive is counter-clockwise, 0 is a straight line.</summary>
-    public double Curve { get; init; }
+    public double Curve { get; set; }
+
+    /// <summary>Eagle line style: continuous, longdash, shortdash or dashdot.</summary>
+    public string Style { get; init; } = "continuous";
+
+    /// <summary>End cap of an arc: round or flat.</summary>
+    public string Cap { get; init; } = "round";
 
     public double DistanceTo(Point p) => GeometryMath.DistanceToSegment(p, From, To);
+
+    public Wire Clone() => (Wire)MemberwiseClone();
 }
 
 public sealed class Circle

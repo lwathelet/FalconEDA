@@ -1,7 +1,7 @@
-using FalconCAD.Commands;
-using FalconCAD.Core;
+using FalconEDA.Commands;
+using FalconEDA.Core;
 
-namespace FalconCAD.Tests;
+namespace FalconEDA.Tests;
 
 public class EditingTests
 {
@@ -82,5 +82,14 @@ public class EditingTests
 
         // Rotate 90: (2, 1) -> (-1, 2). Mirror: (1, 2). Move: (11, 22).
         Assert.Equal(new Point(11, 22), transform.Apply(new Point(2, 1)));
+    }
+
+    [Fact]
+    public void Wire_never_lands_on_the_nets_layer()
+    {
+        Run("GRID MM 1; WIRE (0 0) (10 0);");
+
+        Assert.Equal(Sheet.SymbolLayer, Assert.Single(_editor.Sheet.Wires).Layer);
+        Assert.Throws<ArgumentException>(() => _editor.Sheet.AddWire(new[] { new Point(0, 0), new Point(1, 0) }, 0.2, Sheet.NetLayer));
     }
 }

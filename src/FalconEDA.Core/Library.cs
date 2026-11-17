@@ -1,8 +1,11 @@
-namespace FalconCAD.Core;
+namespace FalconEDA.Core;
 
 public sealed class Symbol
 {
     public required string Name { get; init; }
+
+    /// <summary>What this symbol was read from (the file reader's XML), so it can be copied into another library.</summary>
+    public object? Source { get; set; }
     public Graphics Graphics { get; } = new();
     public List<Pin> Pins { get; } = new();
 }
@@ -28,6 +31,9 @@ public sealed class Device
 public sealed class DeviceSet
 {
     public required string Name { get; init; }
+
+    /// <summary>What this device set was read from (the file reader's XML), so it can be copied into another library.</summary>
+    public object? Source { get; set; }
     public string Prefix { get; init; } = "";
     public bool UserValue { get; init; }
     public Dictionary<string, Gate> Gates { get; } = new();
@@ -40,6 +46,9 @@ public sealed class Library
     public string Urn { get; init; } = "";
     public Dictionary<string, Symbol> Symbols { get; } = new();
     public Dictionary<string, DeviceSet> DeviceSets { get; } = new();
+
+    /// <summary>What this library was read from (the file reader's XML), so it can be written back unchanged.</summary>
+    public object? Source { get; set; }
 
     /// <summary>Libraries in a schematic are identified by name and URN together.</summary>
     public static string Key(string name, string urn) => urn.Length == 0 ? name : $"{name}|{urn}";

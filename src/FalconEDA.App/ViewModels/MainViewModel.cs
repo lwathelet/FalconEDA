@@ -5,17 +5,18 @@ using System.IO;
 using System.Linq;
 using CommunityToolkit.Mvvm.ComponentModel;
 using CommunityToolkit.Mvvm.Input;
-using FalconCAD.Commands;
-using FalconCAD.Core;
-using FalconCAD.IO;
+using FalconEDA.Commands;
+using FalconEDA.Core;
+using FalconEDA.IO;
 
-namespace FalconCAD.App.ViewModels;
+namespace FalconEDA.App.ViewModels;
 
 public partial class MainViewModel : ViewModelBase
 {
     private readonly List<string> _history = new();
     private int _historyIndex;
     private Point _cursor;
+    private ITool? _lastTool;
 
     [ObservableProperty]
     private string _commandText = "";
@@ -44,10 +45,14 @@ public partial class MainViewModel : ViewModelBase
     public MainViewModel()
     {
         Editor.Changed += OnEditorChanged;
+        Editor.SaveRequested += OnSaveRequested;
         RefreshSchematic();
     }
 
     public Editor Editor { get; } = new();
+
+    /// <summary>Raised when the schematic needs a file name; the window answers with a save dialog.</summary>
+    public event Action? SaveAsRequested;
 
     partial void OnActiveLayerChanged(Layer? value)
     {
@@ -75,6 +80,43 @@ public partial class MainViewModel : ViewModelBase
         }
     }
 
+    /// <summary>Saves to <paramref name="path"/>; returns false and shows why if it failed.</summary>
+    public bool SaveFile(string path)
+    {
+        try
+        {
+            EagleSchematicWriter.Save(Editor.Schematic, path);
+            Editor.MarkSaved(path);
+            RefreshSchematic();
+            Status = $"Saved {path}";
+            return true;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            Status = $"Could not save {Path.GetFileName(path)}: {ex.Message}";
+            return false;
+        }
+    }
+
+    private void OnSaveRequested(string? path)
+    {
+        if (path is null)
+        {
+            if (Editor.FilePath is { } current)
+                SaveFile(current);
+            else
+                SaveAsRequested?.Invoke();
+            return;
+        }
+
+        // A bare name is saved next to the current file, as .sch.
+        if (!Path.IsPathRooted(path))
+            path = Path.Combine(Path.GetDirectoryName(Editor.FilePath) ?? Environment.CurrentDirectory, path);
+        if (!Path.HasExtension(path))
+            path += ".sch";
+        SaveFile(path);
+    }
+
     /// <summary>Enter on the command line.</summary>
     [RelayCommand]
     private void RunCommand()
@@ -93,12 +135,35 @@ public partial class MainViewModel : ViewModelBase
     [RelayCommand]
     private void RunText(string text) => Execute(text);
 
+    /// <summary>Esc: cancels the command in progress, or else clears the group.</summary>
     [RelayCommand]
     private void Cancel()
     {
-        Editor.Tool?.Cancel();
+        if (Editor.Tool is { } tool)
+        {
+            tool.Cancel();
+        }
+        else if (!Editor.Selection.IsEmpty)
+        {
+            Editor.Selection.Clear();
+            Editor.NotifyChanged();
+        }
         if (Editor.Tool is null)
             Status = "";
+    }
+
+    /// <summary>The Del key and Edit, Delete group.</summary>
+    [RelayCommand]
+    private void DeleteSelection()
+    {
+        if (Editor.Selection.IsEmpty)
+        {
+            Status = "Nothing selected: drag a rectangle to select a group.";
+            return;
+        }
+        var count = Editor.Selection.Count;
+        CommandExecutor.DeleteSelection(Editor);
+        Status = $"Deleted {count} object(s)";
     }
 
     [RelayCommand]
@@ -143,9 +208,14 @@ public partial class MainViewModel : ViewModelBase
 
     private void OnEditorChanged()
     {
+        // While a tool runs its prompt is the status; when it ends by itself (PASTE after placing), clear it.
         if (Editor.Tool is { } tool)
             Status = tool.Prompt;
+        else if (_lastTool is not null)
+            Status = "";
+        _lastTool = Editor.Tool;
         SheetIndex = Editor.SheetIndex;
+        UpdateTitle();
         UpdateCoordinates();
     }
 
@@ -162,8 +232,15 @@ public partial class MainViewModel : ViewModelBase
         SheetNames = Enumerable.Range(1, count).Select(i => $"{i}/{count}").ToList();
         SheetIndex = Editor.SheetIndex;
 
-        Title = Editor.FilePath is { } path ? $"FalconCAD - {Path.GetFileName(path)}" : "FalconCAD - untitled";
+        UpdateTitle();
         UpdateCoordinates();
+    }
+
+    // A star marks unsaved changes.
+    private void UpdateTitle()
+    {
+        var name = Editor.FilePath is { } path ? Path.GetFileName(path) : "untitled";
+        Title = $"FalconEDA - {name}{(Editor.IsModified ? " *" : "")}";
     }
 
     // Same idea as Eagle's coordinate box: grid size, then the cursor in grid units.
