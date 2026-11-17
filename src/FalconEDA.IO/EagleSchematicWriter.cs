@@ -94,14 +94,21 @@ public static class EagleSchematicWriter
     /// <summary>Writes the nets (or busses), keeping the original XML of every one that did not change.</summary>
     private static void WriteNets(XElement list, string name, IReadOnlyList<Net> nets, Schematic schematic, Sheet sheet)
     {
-        var original = list.Elements(name)
+        // Each net's original XML: the element it was read from (it may have been renamed since), else one of its name.
+        var elements = list.Elements(name).ToList();
+        var claimed = nets.Select(n => n.Source).OfType<XElement>().Where(elements.Contains).ToHashSet();
+        var byName = elements.Where(e => !claimed.Contains(e))
             .GroupBy(e => (string?)e.Attribute("name") ?? "")
             .ToDictionary(g => g.Key, g => g.First());
         var written = nets.Select(net =>
-            original.TryGetValue(net.Name, out var element)
-            && (SameNet(EagleSchematicReader.ReadNet(element), net) || TryUpdateInPlace(element, net, schematic, sheet))
-                ? element
-                : NetElement(name, net, schematic, sheet, withPins: name == "net")).ToList();
+        {
+            var element = net.Source is XElement source && elements.Contains(source) ? source : byName.GetValueOrDefault(net.Name);
+            if (element is not null && (SameNet(EagleSchematicReader.ReadNet(element), net) || TryUpdateInPlace(element, net, schematic, sheet)))
+                return element;
+            var fresh = NetElement(name, net, schematic, sheet, withPins: name == "net");
+            net.Source = fresh;
+            return fresh;
+        }).ToList();
 
         if (written.Count == list.Elements(name).Count() && written.Zip(list.Elements(name)).All(p => ReferenceEquals(p.First, p.Second)))
             return;
@@ -118,32 +125,30 @@ public static class EagleSchematicWriter
     /// </summary>
     private static bool TryUpdateInPlace(XElement element, Net net, Schematic schematic, Sheet sheet)
     {
-        // Wires that are gone (e.g. a short wire that shrank to nothing when a part was moved back).
-        var modelSources = net.Wires.Select(w => w.Source).OfType<XElement>().ToHashSet();
-        foreach (var removed in element.Descendants("wire").Where(w => !modelSources.Contains(w)).ToList())
-        {
-            var segment = removed.Parent!;
-            removed.Remove();
-            if (!segment.HasElements)
-                segment.Remove();
-        }
+        SetIfChanged(element, "name", net.Name);
+
+        // Wires and labels that are gone (e.g. a short wire that shrank to nothing when a part was moved back).
+        var modelSources = net.Wires.Select(w => w.Source).Concat(net.Labels.Select(l => l.Source)).OfType<XElement>().ToHashSet();
+        foreach (var removed in element.Descendants().Where(e => e.Name.LocalName is "wire" or "label" && !modelSources.Contains(e)).ToList())
+            RemoveFromSegment(removed);
 
         var wireElements = element.Descendants("wire").ToList();
         var labelElements = element.Descendants("label").ToList();
         var junctionElements = element.Descendants("junction").ToList();
         var known = net.Wires.Where(w => w.Source is XElement s && wireElements.Contains(s)).ToList();
         var added = net.Wires.Except(known).ToList();
-        var labelSources = net.Labels.Select(l => l.Source as XElement).ToList();
+        var knownLabels = net.Labels.Where(l => l.Source is XElement s && labelElements.Contains(s)).ToList();
+        var addedLabels = net.Labels.Except(knownLabels).ToList();
 
         static string PinKey(PinRef p) => $"{p.Part}/{p.Gate}/{p.Pin}";
-        var xmlPins = element.Descendants("pinref").Select(p => new PinRef(
-            (string?)p.Attribute("part") ?? "", (string?)p.Attribute("gate") ?? "", (string?)p.Attribute("pin") ?? "")).ToList();
+        static PinRef PinOf(XElement p) => new((string?)p.Attribute("part") ?? "", (string?)p.Attribute("gate") ?? "", (string?)p.Attribute("pin") ?? "");
+        var xmlPins = element.Descendants("pinref").Select(PinOf).ToList();
         var addedPins = net.PinRefs.Where(p => !xmlPins.Contains(p)).ToList();
 
         if (known.Count != wireElements.Count || known.Select(w => w.Source).Distinct().Count() != known.Count
-            || labelSources.Count != labelElements.Count || !labelSources.All(s => s is not null && labelElements.Contains(s))
-            || junctionElements.Count != net.Junctions.Count
-            || !xmlPins.All(net.PinRefs.Contains) || xmlPins.Select(PinKey).Distinct().Count() != xmlPins.Count)
+            || knownLabels.Select(l => l.Source).Distinct().Count() != knownLabels.Count
+            || junctionElements.Count > net.Junctions.Count
+            || xmlPins.Select(PinKey).Distinct().Count() != xmlPins.Count)
             return false;
 
         // Where new wires and pins go: the segment holding a wire they touch, or listing a pin at that point.
@@ -183,6 +188,24 @@ public static class EagleSchematicWriter
             segmentOf[wire] = segment;
         }
 
+        // Pins no longer on the net: a part renamed (same gate and pin, same place) gets its name changed in place;
+        // others are taken out.
+        foreach (var pinElement in element.Descendants("pinref").Where(p => !net.PinRefs.Contains(PinOf(p))).ToList())
+        {
+            var old = PinOf(pinElement);
+            var renamed = addedPins.FirstOrDefault(p => p.Gate == old.Gate && p.Pin == old.Pin
+                && schematic.PinPosition(sheet, p) is { } at && SegmentTouching(at) == pinElement.Parent);
+            if (renamed is not null)
+            {
+                pinElement.SetAttributeValue("part", renamed.Part);
+                addedPins.Remove(renamed);
+            }
+            else
+            {
+                RemoveFromSegment(pinElement);
+            }
+        }
+
         foreach (var pin in addedPins)
         {
             if (schematic.PinPosition(sheet, pin) is not { } position || SegmentTouching(position) is not { } segment)
@@ -206,7 +229,7 @@ public static class EagleSchematicWriter
             if (e.Attribute("curve") is not null || wire.Curve != 0)
                 SetNumber(e, "curve", wire.Curve);
         }
-        foreach (var label in net.Labels)
+        foreach (var label in knownLabels)
         {
             var e = (XElement)label.Source!;
             SetNumber(e, "x", label.Position.X);
@@ -220,10 +243,40 @@ public static class EagleSchematicWriter
             SetNumber(junctionElements[i], "y", net.Junctions[i].Y);
         }
 
+        // New junctions (JUNCTION) and labels (LABEL) go into the segment they belong to, after its wires and dots.
+        foreach (var junction in net.Junctions.Skip(junctionElements.Count))
+        {
+            if (SegmentTouching(junction) is not { } segment)
+                return false;
+            var after = segment.Elements().LastOrDefault(e => e.Name.LocalName is "wire" or "junction");
+            var junctionElement = new XElement("junction", Coord("x", junction.X), Coord("y", junction.Y));
+            if (after is null)
+                segment.Add(junctionElement);
+            else
+                after.AddAfterSelf(junctionElement);
+        }
+        foreach (var label in addedLabels)
+        {
+            var segment = segmentOf.Where(x => x.Value.Parent == element)
+                .MinBy(x => x.Key.DistanceTo(label.Position)).Value ?? element.Elements("segment").FirstOrDefault();
+            if (segment is null)
+                return false;
+            segment.Add(LabelElement(label));
+        }
+
         // Each segment must still be one connected piece; if a removal cut one in two, write the net anew.
         var wireOf = net.Wires.Where(w => w.Source is XElement).ToDictionary(w => (XElement)w.Source!);
         return element.Elements("segment").All(segment =>
             Net.ConnectedGroups(segment.Elements("wire").Select(e => wireOf[e]).ToList()).Count <= 1);
+    }
+
+    /// <summary>Takes an element out of its segment, and the segment out of the net when nothing is left in it.</summary>
+    private static void RemoveFromSegment(XElement item)
+    {
+        var segment = item.Parent!;
+        item.Remove();
+        if (!segment.HasElements)
+            segment.Remove();
     }
 
     private static bool SameNet(Net a, Net b) =>
@@ -468,8 +521,11 @@ public static class EagleSchematicWriter
         element.SetAttributeValue("part", instance.Part);
         SetNumber(element, "x", instance.Position.X);
         SetNumber(element, "y", instance.Position.Y);
-        if (instance.Smashed)
-            element.SetAttributeValue("smashed", "yes");
+        element.SetAttributeValue("smashed", instance.Smashed ? "yes" : null);
+
+        // Texts the part no longer has (after unsmashing) are taken out.
+        foreach (var child in element.Elements("attribute").Where(c => instance.Attributes.All(a => a.Name != (string?)c.Attribute("name"))).ToList())
+            child.Remove();
         element.SetAttributeValue("rot", instance.Rotation == default ? null : instance.Rotation.ToString());
 
         foreach (var attribute in instance.Attributes)

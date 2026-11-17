@@ -37,6 +37,7 @@ public partial class MainWindow : Window
                 vm.SaveAsRequested += async () => await SaveAsAsync();
                 vm.Editor.AddDialogRequested += async filter => await ChoosePartAsync(filter);
                 vm.Editor.ValueDialogRequested += async part => await ChooseValueAsync(part);
+                vm.Editor.RenameRequested += async name => await RenameAsync(name);
             }
         };
 
@@ -268,6 +269,17 @@ public partial class MainWindow : Window
             if (choice.NoBom != noBom)
                 vm.RunTextCommand.Execute($"NO_BOM {part.Name} {(choice.NoBom ? "ON" : "OFF")}");
         }
+        CommandBox.Focus();
+    }
+
+    /// <summary>NAME: asks for the new name of a part or net, then renames it with the NAME command.</summary>
+    private async Task RenameAsync(string name)
+    {
+        if (ViewModel is not { } vm)
+            return;
+        var newName = await new InputDialog("NAME", $"New name for {name}:", name).ShowDialog<string?>(this);
+        if (!string.IsNullOrEmpty(newName) && newName != name)
+            vm.RunTextCommand.Execute($"NAME {Quote(name)} {Quote(newName)}");
         CommandBox.Focus();
     }
 

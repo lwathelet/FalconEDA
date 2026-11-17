@@ -18,13 +18,18 @@ public static partial class CommandExecutor
         ["EDIT"] = Edit,
         ["GRID"] = Grid,
         ["GROUP"] = Group,
+        ["JUNCTION"] = JunctionCommand,
+        ["LABEL"] = LabelCommand,
         ["MIRROR"] = Mirror,
         ["MOVE"] = Move,
+        ["NAME"] = Name,
         ["NET"] = Net,
         ["NO_BOM"] = NoBom,
         ["PASTE"] = Paste,
         ["REDO"] = Redo,
         ["ROTATE"] = Rotate,
+        ["SHOW"] = Show,
+        ["SMASH"] = Smash,
         ["UNDO"] = Undo,
         ["VALUE"] = Value,
         ["WINDOW"] = Window,
@@ -33,7 +38,15 @@ public static partial class CommandExecutor
     };
 
     /// <summary>Runs one command and returns the message for the status bar.</summary>
-    public static string Execute(Editor editor, Command command) => Handlers[Resolve(command.Name)](editor, command);
+    public static string Execute(Editor editor, Command command)
+    {
+        var name = Resolve(command.Name);
+
+        // What SHOW pointed out stays until the next command.
+        if (name != "SHOW")
+            editor.ClearHighlight();
+        return Handlers[name](editor, command);
+    }
 
     // Like Eagle, a command can be shortened to any unique prefix: DEL for DELETE.
     private static string Resolve(string name)

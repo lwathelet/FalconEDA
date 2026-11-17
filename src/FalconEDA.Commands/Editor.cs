@@ -5,8 +5,11 @@ namespace FalconEDA.Commands;
 /// <summary>Editing state shared by the command line, the tools and the canvas.</summary>
 public sealed class Editor
 {
-    private readonly Stack<(int Sheet, SheetSnapshot Snapshot)> _undo = new();
-    private readonly Stack<(int Sheet, SheetSnapshot Snapshot)> _redo = new();
+    private readonly Stack<UndoStep> _undo = new();
+    private readonly Stack<UndoStep> _redo = new();
+
+    /// <summary>One step of UNDO: the sheet shown, and the sheets it changed as they were before.</summary>
+    private sealed record UndoStep(int ShownSheet, IReadOnlyList<(int Sheet, SheetSnapshot Snapshot)> Sheets);
 
     public Schematic Schematic { get; private set; } = Schematic.CreateNew();
     public string? FilePath { get; private set; }
@@ -21,6 +24,17 @@ public sealed class Editor
 
     /// <summary>The current group, shown highlighted; MOVE, COPY, CUT, ROTATE, MIRROR and Del act on it.</summary>
     public Selection Selection { get; } = new();
+
+    /// <summary>What SHOW points out (a net, a part), until the next command.</summary>
+    public Selection Highlight { get; } = new();
+
+    /// <summary>A message from a tool for the status bar (e.g. what SHOW found); taken by the app when shown.</summary>
+    public string? Message { get; set; }
+
+    /// <summary>Raised by NAME for a part or net: the app asks for the new name.</summary>
+    public event Action<string>? RenameRequested;
+
+    public void RequestRename(string name) => RenameRequested?.Invoke(name);
 
     /// <summary>What COPY or CUT put on the clipboard for PASTE.</summary>
     public ClipboardContent? Clipboard { get; set; }
@@ -57,6 +71,7 @@ public sealed class Editor
         SheetIndex = 0;
         Tool = null;
         Selection.Clear();
+        Highlight.Clear();
         _undo.Clear();
         _redo.Clear();
         NotifyChanged();
@@ -72,6 +87,7 @@ public sealed class Editor
 
         Tool?.Cancel();
         Selection.Clear();
+        Highlight.Clear();
         SheetIndex = index;
         NotifyChanged();
         RequestZoom(null);
@@ -83,10 +99,13 @@ public sealed class Editor
         NotifyChanged();
     }
 
-    /// <summary>Call before every change to the drawing, so it can be undone.</summary>
-    public void Checkpoint()
+    /// <summary>
+    /// Call before every change to the drawing, so it can be undone. Changes that reach other sheets too
+    /// (renaming a part or net) pass <paramref name="allSheets"/>.
+    /// </summary>
+    public void Checkpoint(bool allSheets = false)
     {
-        _undo.Push((SheetIndex, Sheet.Capture()));
+        _undo.Push(Capture(allSheets ? Enumerable.Range(0, Schematic.Sheets.Count) : [SheetIndex]));
         _redo.Clear();
     }
 
@@ -95,10 +114,15 @@ public sealed class Editor
     {
         if (_undo.Count == 0)
             return;
-        var (sheet, snapshot) = _undo.Pop();
-        SheetIndex = sheet;
-        Sheet.Restore(snapshot);
-        Selection.Clear();
+        Restore(_undo.Pop());
+        NotifyChanged();
+    }
+
+    public void ClearHighlight()
+    {
+        if (Highlight.IsEmpty)
+            return;
+        Highlight.Clear();
         NotifyChanged();
     }
 
@@ -119,19 +143,29 @@ public sealed class Editor
 
     public void RequestZoom(double? factor) => ZoomRequested?.Invoke(factor);
 
-    private bool Step(Stack<(int Sheet, SheetSnapshot Snapshot)> from, Stack<(int Sheet, SheetSnapshot Snapshot)> to)
+    private bool Step(Stack<UndoStep> from, Stack<UndoStep> to)
     {
         if (from.Count == 0)
             return false;
 
-        var (sheet, snapshot) = from.Pop();
-        SheetIndex = sheet;
-        to.Push((sheet, Sheet.Capture()));
-        Sheet.Restore(snapshot);
+        var step = from.Pop();
+        to.Push(Capture(step.Sheets.Select(s => s.Sheet)) with { ShownSheet = step.ShownSheet });
+        Restore(step);
+        NotifyChanged();
+        return true;
+    }
+
+    private UndoStep Capture(IEnumerable<int> sheets) =>
+        new(SheetIndex, sheets.Select(i => (i, Schematic.Sheets[i].Capture())).ToList());
+
+    private void Restore(UndoStep step)
+    {
+        foreach (var (sheet, snapshot) in step.Sheets)
+            Schematic.Sheets[sheet].Restore(snapshot);
+        SheetIndex = step.ShownSheet;
 
         // Undo restores copies of the objects, so the old group no longer refers to anything on the sheet.
         Selection.Clear();
-        NotifyChanged();
-        return true;
+        Highlight.Clear();
     }
 }

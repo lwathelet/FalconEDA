@@ -30,8 +30,11 @@ public sealed partial class Sheet
     public Selection SelectAt(Point p, double radius)
     {
         var selection = new Selection();
-        if (LabelAt(p, radius) is { } label)
+        var text = TextAt(p, radius);
+        if (text is Label label)
             selection.Labels.Add(label);
+        else if (text is PlacedAttribute attribute)
+            selection.Attributes.Add(attribute);
         else if (FindNearest(p, radius) is { } wire)
             selection.AddWhole(wire);
         else if (InstanceAt(p, radius) is { } instance)
@@ -46,10 +49,15 @@ public sealed partial class Sheet
     public Selection SelectForMove(Point p, double radius)
     {
         var selection = new Selection();
-        if (LabelAt(p, radius) is { } label)
+        switch (TextAt(p, radius))
         {
-            selection.Labels.Add(label);
-            return selection;
+            case Label label:
+                selection.Labels.Add(label);
+                return selection;
+            case PlacedAttribute attribute:
+                // A smashed name or value moves on its own, as in Eagle.
+                selection.Attributes.Add(attribute);
+                return selection;
         }
         if (FindNearest(p, radius) is { } wire)
         {
@@ -150,6 +158,14 @@ public sealed partial class Sheet
         {
             label.Position = map(label.Position);
             label.Rotation = rotate(label.Rotation);
+        }
+
+        // Texts picked on their own; those of selected parts already moved with them.
+        var ofMovedParts = selection.Instances.SelectMany(i => i.Attributes).ToHashSet();
+        foreach (var attribute in selection.Attributes.Where(a => !ofMovedParts.Contains(a) && a.Position is not null))
+        {
+            attribute.Position = map(attribute.Position!.Value);
+            attribute.Rotation = rotate(attribute.Rotation);
         }
 
         // Only wires of a net the pin is connected to follow it; another net's wire that merely ends there stays.

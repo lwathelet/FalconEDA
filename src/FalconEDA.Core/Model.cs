@@ -84,7 +84,7 @@ public sealed class Instance
     public required string Gate { get; init; }
     public required Point Position { get; set; }
     public Rotation Rotation { get; set; }
-    public bool Smashed { get; init; }
+    public bool Smashed { get; set; }
     public List<PlacedAttribute> Attributes { get; } = new();
 
     /// <summary>What this instance was read from (the file reader's XML), so it can be written back unchanged.</summary>
@@ -122,6 +122,9 @@ public sealed class Net
 {
     public required string Name { get; set; }
     public int Class { get; set; }
+
+    /// <summary>What this net was read from (the file reader's XML), so a renamed or edited net can be updated in place.</summary>
+    public object? Source { get; set; }
     public List<Wire> Wires { get; } = new();
     public List<Label> Labels { get; } = new();
 
@@ -157,7 +160,7 @@ public sealed class Net
 
     public Net Clone()
     {
-        var copy = new Net { Name = Name, Class = Class };
+        var copy = new Net { Name = Name, Class = Class, Source = Source };
         copy.Wires.AddRange(Wires.Select(w => w.Clone()));
         copy.Labels.AddRange(Labels.Select(l => l.Clone()));
         copy.Junctions.AddRange(Junctions);

@@ -190,7 +190,7 @@ public static class EagleSchematicReader
 
     internal static Net ReadNet(XElement element)
     {
-        var net = new Net { Name = Str(element, "name"), Class = Int(element, "class") };
+        var net = new Net { Name = Str(element, "name"), Class = Int(element, "class"), Source = element };
         foreach (var segment in element.Elements("segment"))
         {
             net.Wires.AddRange(segment.Elements("wire").Select(ReadWire));

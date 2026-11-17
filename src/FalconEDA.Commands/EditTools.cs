@@ -111,11 +111,17 @@ public sealed class TurnTool : ITool
             selection = _editor.Selection;
             pivot = p;
         }
-        else if (_editor.Sheet.LabelAt(p, pickRadius) is { } label)
+        else if (_editor.Sheet.TextAt(p, pickRadius) is Label label)
         {
             selection = new Selection();
             selection.Labels.Add(label);
             pivot = label.Position;
+        }
+        else if (_editor.Sheet.TextAt(p, pickRadius) is PlacedAttribute { Position: { } position } attribute)
+        {
+            selection = new Selection();
+            selection.Attributes.Add(attribute);
+            pivot = position;
         }
         else if (_editor.Sheet.InstanceAt(p, pickRadius) is { } instance)
         {

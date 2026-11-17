@@ -1,6 +1,6 @@
 namespace FalconEDA.Core;
 
-public sealed class Schematic
+public sealed partial class Schematic
 {
     public string Name { get; set; } = "untitled";
     public DateTime LastModified { get; set; } = DateTime.Now;

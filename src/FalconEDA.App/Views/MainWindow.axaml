@@ -49,7 +49,9 @@
                 <MenuItem Header="Delete _group" InputGesture="Delete" Command="{Binding DeleteSelectionCommand}" />
                 <MenuItem Header="Select _all" Command="{Binding RunTextCommand}" CommandParameter="GROUP ALL" />
                 <Separator />
+                <MenuItem Header="_Name..." Command="{Binding RunTextCommand}" CommandParameter="NAME" />
                 <MenuItem Header="_Value..." Command="{Binding RunTextCommand}" CommandParameter="VALUE" />
+                <MenuItem Header="_Smash" Command="{Binding RunTextCommand}" CommandParameter="SMASH" />
                 <MenuItem Header="D_NP on/off" Command="{Binding RunTextCommand}" CommandParameter="DNP" />
                 <MenuItem Header="Not in _BOM on/off" Command="{Binding RunTextCommand}" CommandParameter="NO_BOM" />
                 <Separator />
@@ -62,6 +64,8 @@
                 <MenuItem Header="_Add part..." Command="{Binding RunTextCommand}" CommandParameter="ADD" />
                 <MenuItem Header="_Net" Command="{Binding RunTextCommand}" CommandParameter="NET" />
                 <MenuItem Header="_Wire" Command="{Binding RunTextCommand}" CommandParameter="WIRE" />
+                <MenuItem Header="_Label" Command="{Binding RunTextCommand}" CommandParameter="LABEL" />
+                <MenuItem Header="_Junction" Command="{Binding RunTextCommand}" CommandParameter="JUNCTION" />
             </MenuItem>
             <MenuItem Header="_Options">
                 <MenuItem Header="_Library folders..." Click="OnLibraryFolders" />
@@ -71,6 +75,7 @@
                 <MenuItem Header="Zoom _in" Command="{Binding RunTextCommand}" CommandParameter="WINDOW 2" />
                 <MenuItem Header="Zoom _out" Command="{Binding RunTextCommand}" CommandParameter="WINDOW 0.5" />
                 <MenuItem Header="_Grid on/off" Command="{Binding RunTextCommand}" CommandParameter="GRID" />
+                <MenuItem Header="_Show net or part" Command="{Binding RunTextCommand}" CommandParameter="SHOW" />
             </MenuItem>
         </Menu>
 
@@ -129,6 +134,12 @@
             <Button Classes="tool" ToolTip.Tip="Add a part (ADD)" Command="{Binding RunTextCommand}" CommandParameter="ADD">
                 <Path Data="M7,4 H17 V20 H7 Z M3,8 H7 M3,16 H7 M17,8 H21 M17,16 H21 M10,12 H14 M12,10 V14" />
             </Button>
+            <Button Classes="tool" ToolTip.Tip="Name (NAME)" Command="{Binding RunTextCommand}" CommandParameter="NAME">
+                <Path Data="M4,19 V5 L14,19 V5 M17,19 H21" />
+            </Button>
+            <Button Classes="tool" ToolTip.Tip="Smash: name and value on their own (SMASH)" Command="{Binding RunTextCommand}" CommandParameter="SMASH">
+                <Path Data="M4,14 H12 V20 H4 Z M14,4 H20 M14,8 H18 M17,14 L20,11 M17,17 L20,20" />
+            </Button>
             <Button Classes="tool" ToolTip.Tip="Value (VALUE)" Command="{Binding RunTextCommand}" CommandParameter="VALUE">
                 <Path Data="M3,6 H21 V18 H3 Z M7,10 L9,14 L11,10 M14,10 V14 H17" />
             </Button>
@@ -149,6 +160,15 @@
             </Button>
             <Button Classes="tool" ToolTip.Tip="Net (NET)" Command="{Binding RunTextCommand}" CommandParameter="NET">
                 <Path Data="M3,18 H12 V6 H21" />
+            </Button>
+            <Button Classes="tool" ToolTip.Tip="Label (LABEL)" Command="{Binding RunTextCommand}" CommandParameter="LABEL">
+                <Path Data="M3,18 H21 M6,14 L9,6 L12,14 M7,11 H11 M14,6 V14 H18" />
+            </Button>
+            <Button Classes="tool" ToolTip.Tip="Junction (JUNCTION)" Command="{Binding RunTextCommand}" CommandParameter="JUNCTION">
+                <Path Data="M3,12 H21 M12,12 V21 M9,12 A3,3 0 1 0 15,12 A3,3 0 1 0 9,12" />
+            </Button>
+            <Button Classes="tool" ToolTip.Tip="Show a net or part (SHOW)" Command="{Binding RunTextCommand}" CommandParameter="SHOW">
+                <Path Data="M2,12 C6,5 18,5 22,12 C18,19 6,19 2,12 Z M9,12 A3,3 0 1 0 15,12 A3,3 0 1 0 9,12" />
             </Button>
             <Button Classes="tool" ToolTip.Tip="Wire (WIRE)" Command="{Binding RunTextCommand}" CommandParameter="WIRE">
                 <Path Data="M4,20 L20,4" />

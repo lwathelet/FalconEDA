@@ -12,9 +12,12 @@ public sealed class Selection
     public HashSet<(Wire Wire, bool End)> WireEnds { get; } = new();
     public HashSet<Label> Labels { get; } = new();
 
-    public bool IsEmpty => Instances.Count == 0 && WireEnds.Count == 0 && Labels.Count == 0;
+    /// <summary>Smashed texts (name, value...) moved on their own, without their part.</summary>
+    public HashSet<PlacedAttribute> Attributes { get; } = new();
 
-    public int Count => Instances.Count + Wires.Count() + Labels.Count;
+    public bool IsEmpty => Instances.Count == 0 && WireEnds.Count == 0 && Labels.Count == 0 && Attributes.Count == 0;
+
+    public int Count => Instances.Count + Wires.Count() + Labels.Count + Attributes.Count;
 
     /// <summary>Wires with at least one end selected.</summary>
     public IEnumerable<Wire> Wires => WireEnds.Select(e => e.Wire).Distinct();
@@ -33,6 +36,7 @@ public sealed class Selection
         Instances.UnionWith(other.Instances);
         WireEnds.UnionWith(other.WireEnds);
         Labels.UnionWith(other.Labels);
+        Attributes.UnionWith(other.Attributes);
     }
 
     /// <summary>Adds what is not selected yet and removes what is (Ctrl+click).</summary>
@@ -41,6 +45,7 @@ public sealed class Selection
         Instances.SymmetricExceptWith(other.Instances);
         WireEnds.SymmetricExceptWith(other.WireEnds);
         Labels.SymmetricExceptWith(other.Labels);
+        Attributes.SymmetricExceptWith(other.Attributes);
     }
 
     public void Clear()
@@ -48,6 +53,7 @@ public sealed class Selection
         Instances.Clear();
         WireEnds.Clear();
         Labels.Clear();
+        Attributes.Clear();
     }
 }
 

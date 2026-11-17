@@ -3,7 +3,26 @@ using System.Globalization;
 namespace FalconEDA.Core;
 
 /// <summary>A text ready to draw: placeholders resolved, angle normalised so it reads left-to-right or bottom-to-top.</summary>
-public sealed record TextPrimitive(string Value, Point Position, double Size, double Angle, Align Align, int Layer);
+public sealed record TextPrimitive(string Value, Point Position, double Size, double Angle, Align Align, int Layer, object? Owner = null)
+{
+    /// <summary>
+    /// Whether <paramref name="p"/> is on the text, within <paramref name="margin"/>. The width is estimated
+    /// (Eagle's proportional font is about 0.8 of the height per character), which is enough to pick it.
+    /// </summary>
+    public bool Contains(Point p, double margin)
+    {
+        var width = Math.Max(1, Value.Length) * Size * 0.8;
+        var x0 = Align.H switch { HAlign.Center => -width / 2, HAlign.Right => -width, _ => 0 };
+        var y0 = Align.V switch { VAlign.Center => -Size / 2, VAlign.Top => -Size, _ => 0 };
+
+        // Into the text's own direction.
+        var d = p - Position;
+        var a = -Angle * Math.PI / 180;
+        var x = d.X * Math.Cos(a) - d.Y * Math.Sin(a);
+        var y = d.X * Math.Sin(a) + d.Y * Math.Cos(a);
+        return x >= x0 - margin && x <= x0 + width + margin && y >= y0 - margin && y <= y0 + Size + margin;
+    }
+}
 
 /// <summary>
 /// Everything visible on one sheet, flattened into sheet coordinates.
@@ -47,6 +66,10 @@ public sealed class SheetView
         return view;
     }
 
+    /// <summary>The label or placed attribute (smashed name, value...) whose text is under <paramref name="p"/>.</summary>
+    public object? TextOwnerAt(Point p, double margin) =>
+        Texts.Where(t => t.Owner is not null && t.Contains(p, margin)).Select(t => t.Owner).LastOrDefault();
+
     public Rect? Bounds()
     {
         var points = Wires.SelectMany(w => new[] { w.From, w.To })
@@ -80,7 +103,8 @@ public sealed class SheetView
         foreach (var pin in symbol.Pins)
             AddPin(pin, transform, device?.Connects.GetValueOrDefault((gate.Name, pin.Name)));
 
-        foreach (var attribute in instance.Attributes)
+        // An unsmashed part shows its texts where the symbol has them; only a smashed one uses its own.
+        foreach (var attribute in instance.Smashed ? instance.Attributes : [])
         {
             if (attribute.Position is not { } position || attribute.Display == AttributeDisplay.Off)
                 continue;
@@ -92,7 +116,7 @@ public sealed class SheetView
                 AttributeDisplay.Both => $"{attribute.Name} = {value}",
                 _ => value,
             };
-            AddText(shown, position, attribute.Size, attribute.Rotation, attribute.Align, attribute.Layer, Transform.Identity);
+            AddText(shown, position, attribute.Size, attribute.Rotation, attribute.Align, attribute.Layer, Transform.Identity, attribute);
         }
     }
 
@@ -129,7 +153,7 @@ public sealed class SheetView
             Circles.Add(new Circle { Center = junction, Radius = JunctionRadius, Layer = Sheet.NetLayer });
 
         foreach (var label in net.Labels)
-            AddText(net.Name, label.Position, label.Size, label.Rotation, label.Align, label.Layer, Transform.Identity);
+            AddText(net.Name, label.Position, label.Size, label.Rotation, label.Align, label.Layer, Transform.Identity, label);
     }
 
     private void AddGraphics(Graphics graphics, Transform transform, Func<string, string?> resolve)
@@ -236,7 +260,7 @@ public sealed class SheetView
     /// Places a text and keeps it readable: a mirrored symbol does not mirror its text,
     /// and text pointing left or down is turned around unless it has the spin flag.
     /// </summary>
-    private void AddText(string value, Point position, double size, Rotation rotation, Align align, int layer, Transform transform)
+    private void AddText(string value, Point position, double size, Rotation rotation, Align align, int layer, Transform transform, object? owner = null)
     {
         // Rotate with the symbol; a mirror then reflects the direction (angle -> -angle) and swaps left/right alignment.
         var angle = rotation.Angle + transform.Rotation.Angle;
@@ -253,7 +277,7 @@ public sealed class SheetView
             align = align.FlipH().FlipV();
         }
 
-        Texts.Add(new TextPrimitive(value, transform.Apply(position), size, angle, align, layer));
+        Texts.Add(new TextPrimitive(value, transform.Apply(position), size, angle, align, layer, owner));
     }
 
     /// <summary>

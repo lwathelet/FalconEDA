@@ -180,6 +180,10 @@ public partial class MainViewModel : ViewModelBase
         {
             tool.Cancel();
         }
+        else if (!Editor.Highlight.IsEmpty)
+        {
+            Editor.ClearHighlight();
+        }
         else if (!Editor.Selection.IsEmpty)
         {
             Editor.Selection.Clear();
@@ -245,8 +249,14 @@ public partial class MainViewModel : ViewModelBase
 
     private void OnEditorChanged()
     {
-        // While a tool runs its prompt is the status; when it ends by itself (PASTE after placing), clear it.
-        if (Editor.Tool is { } tool)
+        // A tool's message (what SHOW found) first; while a tool runs its prompt is the status;
+        // when it ends by itself (PASTE after placing), clear it.
+        if (Editor.Message is { } message)
+        {
+            Status = message;
+            Editor.Message = null;
+        }
+        else if (Editor.Tool is { } tool)
             Status = tool.Prompt;
         else if (_lastTool is not null)
             Status = "";

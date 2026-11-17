@@ -26,6 +26,9 @@ public sealed class EditorCanvas : Control
     private static readonly IBrush GridBrush = new SolidColorBrush(Color.FromRgb(110, 110, 110));
     private static readonly IPen OriginPen = new Pen(Brushes.Gray, 1);
     private static readonly IBrush HighlightBrush = new SolidColorBrush(Color.FromRgb(255, 255, 255));
+
+    // What SHOW points out: yellow, so it is not taken for the (white) group.
+    private static readonly IBrush ShowBrush = new SolidColorBrush(Color.FromRgb(255, 230, 60));
     private static readonly IPen SelectionRectPen = new Pen(Brushes.White, 1, new DashStyle(new double[] { 4, 3 }, 0));
 
     // Below this many pixels of mouse travel, a press and release is a click, not a drag.
@@ -194,20 +197,20 @@ public sealed class EditorCanvas : Control
                 DrawWire(context, wire);
         }
 
-        DrawSelection(context, editor);
+        DrawSelection(context, editor.Highlight, ShowBrush, editor);
+        DrawSelection(context, editor.Selection, HighlightBrush, editor);
         if (_dragRect is { } rect)
             context.DrawRectangle(null, SelectionRectPen, rect);
     }
 
-    /// <summary>The group is drawn over the sheet in white, like Eagle's highlighted group.</summary>
-    private void DrawSelection(DrawingContext context, Editor editor)
+    /// <summary>The group is drawn over the sheet in white, like Eagle's highlighted group; what SHOW found in yellow.</summary>
+    private void DrawSelection(DrawingContext context, Selection selection, IBrush brush, Editor editor)
     {
-        var selection = editor.Selection;
         if (selection.IsEmpty)
             return;
 
         void Line(Wire w, double width) =>
-            context.DrawLine(new Pen(HighlightBrush, Math.Max(1.5, width * _scale), lineCap: PenLineCap.Round), ToScreen(w.From), ToScreen(w.To));
+            context.DrawLine(new Pen(brush, Math.Max(1.5, width * _scale), lineCap: PenLineCap.Round), ToScreen(w.From), ToScreen(w.To));
 
         foreach (var wire in selection.Wires)
             Line(wire, wire.Width);
@@ -217,7 +220,9 @@ public sealed class EditorCanvas : Control
                 Line(wire, wire.Width);
         }
         foreach (var label in selection.Labels)
-            context.DrawEllipse(null, new Pen(HighlightBrush, 1.5), ToScreen(label.Position), 4, 4);
+            context.DrawEllipse(null, new Pen(brush, 1.5), ToScreen(label.Position), 4, 4);
+        foreach (var attribute in selection.Attributes.Where(a => a.Position is not null))
+            context.DrawEllipse(null, new Pen(brush, 1.5), ToScreen(attribute.Position!.Value), 4, 4);
     }
 
     private void DrawGrid(DrawingContext context, Editor editor)
